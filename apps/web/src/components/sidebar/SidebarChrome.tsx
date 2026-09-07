@@ -2,6 +2,7 @@ import {
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
   GitPullRequestIcon,
+  KanbanIcon,
   SettingsIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -170,6 +171,11 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
     void navigate({ to: "/settings" });
   }, [closeMobileSidebar, navigate]);
 
+  const handlePipelineClick = useCallback(() => {
+    closeMobileSidebar();
+    void navigate({ to: "/pipeline" });
+  }, [closeMobileSidebar, navigate]);
+
   const handleUsageClick = useCallback(() => {
     if (isMobile) {
       setOpenMobile(false);
@@ -209,6 +215,11 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
               onClick={handlePullRequestsClick}
             />
           ) : null}
+          <SidebarUtilityItem
+            icon={<KanbanIcon />}
+            label="Pipeline"
+            onClick={handlePipelineClick}
+          />
           <SidebarUtilityItem
             icon={<ChartNoAxesColumnIcon />}
             label="Usage"
