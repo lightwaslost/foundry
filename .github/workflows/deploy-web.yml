@@ -22,7 +22,8 @@ jobs:
         run: |
           mkdir -p ~/.ssh
           printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -t ed25519 "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+          # pinned host key (no runtime ssh-keyscan)
+          echo '187.127.191.239 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEuoqD//odUNPhh/1upsuZ6ZSXoYotlPaNmefwIJxLgB' >> ~/.ssh/known_hosts
 
       - name: ship web bundle (keep previous for rollback)
         env: { H: "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" }
