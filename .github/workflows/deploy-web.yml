@@ -1,0 +1,42 @@
+name: deploy-web
+on:
+  push:
+    branches: [main]
+    paths: ["apps/web/**", "packages/**", ".github/workflows/deploy-web.yml"]
+concurrency: { group: deploy-t3-web, cancel-in-progress: false }
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - run: corepack enable && corepack prepare pnpm@11.10.0 --activate
+      - run: pnpm install --frozen-lockfile
+        env: { COREPACK_ENABLE_DOWNLOAD_PROMPT: "0" }
+      - run: pnpm --filter '@t3tools/web' run typecheck
+      - run: pnpm --filter '@t3tools/web' run build
+
+      - name: ssh setup
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -t ed25519 "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: ship web bundle (keep previous for rollback)
+        env: { H: "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" }
+        run: |
+          rsync -az --delete apps/web/dist/ "$H:/tmp/t3-client-new/"
+          ssh "$H" bash -s <<'EOF'
+          set -e
+          D=/usr/lib/node_modules/t3/dist
+          rm -rf "$D/client.prev"; [ -d "$D/client" ] && mv "$D/client" "$D/client.prev"
+          mv /tmp/t3-client-new "$D/client"
+          sudo systemctl restart t3
+          for i in $(seq 1 15); do sleep 2; curl -sf -o /dev/null http://172.17.0.1:4488/ && { echo healthy; exit 0; }; done
+          echo "t3 unhealthy — restoring previous client"
+          rm -rf "$D/client"; mv "$D/client.prev" "$D/client"; sudo systemctl restart t3
+          exit 1
+          EOF
+        shell: bash
