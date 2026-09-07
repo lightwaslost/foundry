@@ -6,8 +6,10 @@ import {
   CheckIcon,
   CircleDotIcon,
   ExternalLinkIcon,
+  PencilIcon,
   PlayIcon,
   RotateCwIcon,
+  Undo2Icon,
   XIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
@@ -312,6 +314,207 @@ function NewTask({
   );
 }
 
+type DiffPayload = {
+  from: { id: string; version: number; author_id: string | null };
+  to: { id: string; version: number; author_id: string | null };
+  diff: {
+    hunks: Array<{ lines: Array<{ type: "ctx" | "add" | "del"; text: string }> }>;
+    added: number;
+    deleted: number;
+  };
+};
+
+/** Unified diff between two versions of the same artifact. */
+function DiffView({
+  fromId,
+  toId,
+  onClose,
+}: {
+  fromId: string;
+  toId: string;
+  onClose: () => void;
+}) {
+  const [d, setD] = useState<DiffPayload | null>(null);
+  useEffect(() => {
+    void call<DiffPayload>(`/api/artifacts/${toId}/diff?against=${fromId}`).then((r) => {
+      if (!unauthorized(r)) setD(r);
+    });
+  }, [fromId, toId]);
+  if (!d) return <p className="text-muted-foreground text-xs">Loading diff…</p>;
+  return (
+    <div className="mt-2">
+      <div className="mb-1 flex items-center justify-between font-mono text-[11px]">
+        <span className="text-muted-foreground">
+          v{d.from.version} {d.from.author_id ? "(edited)" : "(agent)"} → v{d.to.version}{" "}
+          {d.to.author_id ? "(edited)" : "(agent)"} ·{" "}
+          <span className="text-primary">+{d.diff.added}</span>{" "}
+          <span className="text-destructive-foreground">−{d.diff.deleted}</span>
+        </span>
+        <Button size="xs" variant="ghost-muted" onClick={onClose}>
+          close
+        </Button>
+      </div>
+      <pre className="bg-background max-h-[40vh] overflow-auto rounded-md border p-2 font-mono text-[11px] leading-5">
+        {d.diff.hunks.length === 0 ? "(no changes)" : null}
+        {d.diff.hunks.map((h, i) => (
+          <div key={i} className={i > 0 ? "border-t pt-1 mt-1" : ""}>
+            {h.lines.map((l, j) => (
+              <div
+                key={j}
+                className={
+                  l.type === "add"
+                    ? "bg-primary/10 text-foreground"
+                    : l.type === "del"
+                      ? "bg-destructive/10 text-muted-foreground line-through"
+                      : "text-muted-foreground"
+                }
+              >
+                {l.type === "add" ? "+ " : l.type === "del" ? "- " : "  "}
+                {l.text}
+              </div>
+            ))}
+          </div>
+        ))}
+      </pre>
+    </div>
+  );
+}
+
+/**
+ * The human gate for one stage run. Four decisions; every one is attributed and
+ * decided exactly once server-side (a second click gets a 409, not a second run).
+ */
+function GatePanel({
+  gate,
+  artifact,
+  onDecided,
+}: {
+  gate: Gate;
+  artifact: ArtifactMeta | undefined;
+  onDecided: () => void;
+}) {
+  const [mode, setMode] = useState<"idle" | "revise" | "edit">("idle");
+  const [feedback, setFeedback] = useState("");
+  const [draft, setDraft] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const decide = async (
+    decision: "approve" | "revise" | "reject",
+    extra: Record<string, unknown> = {},
+  ) => {
+    setBusy(true);
+    setErr(null);
+    const r = await call<{ error?: string }>(`/api/gates/${gate.id}/decide`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ decision, ...extra }),
+    });
+    setBusy(false);
+    if (unauthorized(r)) return;
+    if (r.error) {
+      setErr(r.error);
+      return;
+    }
+    setMode("idle");
+    onDecided();
+  };
+  const startEdit = async () => {
+    if (!artifact) return;
+    const res = await fetch(`${API}/api/artifacts/${artifact.id}?raw=1`, {
+      credentials: "include",
+    });
+    setDraft(await res.text());
+    setMode("edit");
+  };
+
+  return (
+    <div className="border-warning/32 bg-warning-surface mt-2 rounded-md border p-2.5">
+      <p className="text-warning-foreground mb-2 text-xs font-medium">
+        Your decision: {gate.stage}
+        {gate.attempt > 1 ? ` (attempt ${gate.attempt})` : ""}
+        {!artifact ? " — the agent produced no output" : ""}
+      </p>
+      {mode === "idle" ? (
+        <div className="flex flex-wrap gap-1.5">
+          <Button size="xs" onClick={() => void decide("approve")} disabled={busy || !artifact}>
+            <CheckIcon /> Approve
+          </Button>
+          <Button
+            size="xs"
+            variant="outline"
+            onClick={() => void startEdit()}
+            disabled={busy || !artifact}
+          >
+            <PencilIcon /> Edit &amp; approve
+          </Button>
+          <Button size="xs" variant="outline" onClick={() => setMode("revise")} disabled={busy}>
+            <Undo2Icon /> Revise
+          </Button>
+          <Button
+            size="xs"
+            variant="destructive-outline"
+            onClick={() => {
+              if (window.confirm("Reject this task? Its branch and worktree will be removed."))
+                void decide("reject");
+            }}
+            disabled={busy}
+          >
+            <XIcon /> Reject
+          </Button>
+        </div>
+      ) : null}
+      {mode === "revise" ? (
+        <div className="space-y-2">
+          <textarea
+            autoFocus
+            value={feedback}
+            onChange={(e) => setFeedback(e.target.value)}
+            rows={3}
+            placeholder="What's wrong? The agent reruns this stage with your feedback in front of it."
+            className="border-input bg-background focus-visible:border-primary w-full rounded-md border px-3 py-2 text-sm outline-none"
+          />
+          <div className="flex gap-1.5">
+            <Button
+              size="xs"
+              onClick={() => void decide("revise", { feedback })}
+              disabled={busy || !feedback.trim()}
+            >
+              Send back
+            </Button>
+            <Button size="xs" variant="ghost-muted" onClick={() => setMode("idle")}>
+              cancel
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      {mode === "edit" && draft !== null ? (
+        <div className="space-y-2">
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={14}
+            className="border-input bg-background focus-visible:border-primary w-full rounded-md border px-3 py-2 font-mono text-[12px] outline-none"
+          />
+          <div className="flex gap-1.5">
+            <Button
+              size="xs"
+              onClick={() => void decide("approve", { content: draft })}
+              disabled={busy || !draft.trim()}
+            >
+              <CheckIcon /> Save as v{(artifact?.version ?? 0) + 1} &amp; approve
+            </Button>
+            <Button size="xs" variant="ghost-muted" onClick={() => setMode("idle")}>
+              cancel
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      {err ? <p className="text-destructive-foreground mt-2 text-xs">{err}</p> : null}
+    </div>
+  );
+}
+
 function PipelinePage() {
   const [needsAuth, setNeedsAuth] = useState(false);
   const [me, setMe] = useState<User | null>(null);
@@ -326,8 +529,13 @@ function PipelinePage() {
   );
   const [envId, setEnvId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [viewDiff, setViewDiff] = useState<{ fromId: string; toId: string } | null>(null);
   const selRef = useRef<string | null>(null);
   selRef.current = selected;
+  const versionsFor = (stage: string) =>
+    (detail?.artifacts ?? [])
+      .filter((a) => a.stage === stage)
+      .sort((a, b) => a.version - b.version);
 
   // T3's own environment id, for thread deep links (/$environmentId/$threadId).
   useEffect(() => {
@@ -402,7 +610,7 @@ function PipelinePage() {
   ];
 
   return (
-    <div className="flex h-full min-h-0">
+    <div className="flex h-full min-h-0 w-full min-w-0 overflow-hidden">
       <div className="min-w-0 flex-1 overflow-auto p-4">
         <div className="mb-3 flex items-center gap-3">
           <h1 className="text-foreground text-sm font-semibold">Pipeline</h1>
@@ -436,6 +644,7 @@ function PipelinePage() {
                   onClick={() => {
                     setSelected(t.id);
                     setViewArtifact(null);
+                    setViewDiff(null);
                   }}
                   className={`bg-popover mb-2 w-full rounded-md border p-3 text-left transition-colors ${selected === t.id ? "border-primary" : "border-border hover:border-input"}`}
                 >
@@ -465,7 +674,7 @@ function PipelinePage() {
         </div>
       </div>
 
-      <aside className="bg-popover w-[460px] shrink-0 overflow-auto border-l p-4">
+      <aside className="bg-popover w-[460px] max-w-[50%] shrink-0 overflow-auto border-l p-4">
         {!task ? (
           <p className="text-muted-foreground py-16 text-center text-sm">Select a task</p>
         ) : (
@@ -574,12 +783,25 @@ function PipelinePage() {
                             <XIcon /> Cancel
                           </Button>
                         ) : null}
-                        {gate && !gate.decided_at ? (
-                          <span className="text-warning-foreground self-center text-xs">
-                            awaiting your decision (gate actions arrive with M4)
-                          </span>
+                        {versionsFor(r.stage).length > 1 && art ? (
+                          <Button
+                            size="xs"
+                            variant="ghost-muted"
+                            onClick={() => {
+                              const vs = versionsFor(r.stage);
+                              const prev = vs.find((v) => v.version === art.version - 1) ?? vs[0]!;
+                              setViewDiff(
+                                prev.id === art.id ? null : { fromId: prev.id, toId: art.id },
+                              );
+                            }}
+                          >
+                            Diff v{art.version - 1}→v{art.version}
+                          </Button>
                         ) : null}
                       </div>
+                      {gate && !gate.decided_at ? (
+                        <GatePanel gate={gate} artifact={art} onDecided={() => void refresh()} />
+                      ) : null}
                       {r.park_reason && r.park_detail ? (
                         <pre className="text-muted-foreground bg-background mt-2 max-h-40 overflow-auto rounded border p-2 font-mono text-[10px] whitespace-pre-wrap">
                           {JSON.stringify(r.park_detail, null, 1).slice(0, 2000)}
@@ -590,6 +812,14 @@ function PipelinePage() {
                 })}
               </div>
             )}
+
+            {viewDiff ? (
+              <DiffView
+                fromId={viewDiff.fromId}
+                toId={viewDiff.toId}
+                onClose={() => setViewDiff(null)}
+              />
+            ) : null}
 
             {viewArtifact ? (
               <div className="mt-4">
