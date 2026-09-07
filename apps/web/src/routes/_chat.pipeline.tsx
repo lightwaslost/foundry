@@ -1,135 +1,184 @@
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Spinner } from "~/components/ui/spinner";
-import { createFileRoute } from "@tanstack/react-router";
-import { CheckIcon, CircleDotIcon, ExternalLinkIcon, RotateCwIcon } from "lucide-react";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import {
+  CheckIcon,
+  CircleDotIcon,
+  ExternalLinkIcon,
+  PlayIcon,
+  RotateCwIcon,
+  XIcon,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 /**
- * Foundry pipeline board.
+ * Foundry pipeline board — a page inside T3.
  *
- * The board's data lives in the Foundry service, not in T3's store — T3 has no
- * concept of a task with staged artifacts and human gates. Traefik proxies
- * Foundry under /foundry-api on this host so the calls are same-origin and the
- * session cookie just works.
+ * Data comes from the Foundry service (proxied same-origin under /foundry-api),
+ * which owns tasks, stage runs, artifacts and gates. T3 owns the agent threads;
+ * each stage run links to its thread here, so "open the thread" is one click.
+ * Gate actions (approve / revise) land with Foundry's M4 endpoints.
  */
 const API = "/foundry-api";
 
-type StageMeta = { name: string; kind: string };
+type Stage = {
+  name: string;
+  kind: "markdown" | "html" | "pull_request";
+  gate: "human" | "auto";
+  provider: { instanceId: string; model: string };
+  skill: string | null;
+};
+type PipelineDef = { name: string; description: string | null; stages: Stage[] };
+type Repo = { id: string; name: string; default_branch: string; clone_state: string };
+type User = { id: string; name: string; email: string; role: string };
 type Task = {
   id: string;
+  ticket: string;
   title: string;
+  description: string;
+  repo_id: string;
+  pipeline: string;
+  pipeline_snapshot: Array<{ name: string; output: { kind: string; file?: string }; gate: string }>;
+  assignee_id: string | null;
+  branch: string;
   stage: string | null;
-  state: string;
+  state: "open" | "done" | "rejected" | "cancelled";
+  created_at: string;
+};
+type Run = {
+  id: string;
+  stage: string;
   attempt: number;
-  error: string | null;
-  running: boolean;
+  state: string;
+  t3_thread_id: string | null;
+  queued_at: string;
+  started_at: string | null;
+  active_ms: number | string;
+  active_since: string | null;
+  timeout_ms: number;
+  head_sha: string | null;
+  artifact_id: string | null;
+  pr_url: string | null;
+  park_reason: string | null;
+  park_detail: unknown;
+  finished_at: string | null;
 };
-type BoardState = { stages: StageMeta[]; tasks: Task[] };
-type Artifact = { stage: string; kind: string; version: number; author: string; content: string };
-type StageRow = {
-  name: string;
-  kind: string;
-  hasArtifact: boolean;
+type Gate = {
+  id: string;
+  stage_run_id: string;
+  stage: string;
+  attempt: number;
+  artifact_id: string | null;
   decision: string | null;
-  current: boolean;
+  decided_at: string | null;
 };
-type Detail = {
-  task: Task;
-  view: string | null;
-  stages: StageRow[];
-  artifact: Artifact | null;
-  versions: { version: number; author: string }[];
-  log: string;
+type ArtifactMeta = {
+  id: string;
+  stage: string;
+  version: number;
+  author_id: string | null;
+  kind: string;
+  created_at: string;
 };
+type Detail = { runs: Run[]; gates: Gate[]; artifacts: ArtifactMeta[] };
 
 async function call<T>(path: string, init?: RequestInit): Promise<T | { __unauthorized: true }> {
   const res = await fetch(`${API}${path}`, { credentials: "include", ...init });
   if (res.status === 401) return { __unauthorized: true };
   return (await res.json()) as T;
 }
-const isUnauthorized = (v: unknown): v is { __unauthorized: true } =>
+const unauthorized = (v: unknown): v is { __unauthorized: true } =>
   typeof v === "object" && v !== null && "__unauthorized" in v;
 
-/** Signed-out state. Foundry owns its own session; we just collect the password. */
 function SignIn({ onDone }: { onDone: () => void }) {
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
     setBusy(true);
     setError(null);
-    const res = await fetch(`${API}/login`, {
+    const res = await fetch(`${API}/api/auth/login`, {
       method: "POST",
       credentials: "include",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ email, password }),
     });
     setBusy(false);
     if (res.ok) onDone();
-    else setError("That password is not right.");
+    else setError("Invalid email or password.");
   };
-
+  const cls =
+    "border-input bg-popover focus-visible:border-primary h-9 w-full rounded-md border px-3 text-sm outline-none";
   return (
     <div className="flex h-full items-center justify-center p-6">
       <form onSubmit={submit} className="w-full max-w-xs space-y-3">
         <div>
-          <h2 className="text-sm font-medium">Connect to Foundry</h2>
-          <p className="text-muted-foreground text-xs">
-            The pipeline service holds its own session.
-          </p>
+          <h2 className="text-sm font-medium">Sign in to Foundry</h2>
+          <p className="text-muted-foreground text-xs">Named account, 30-day session.</p>
         </div>
         <input
-          type="password"
+          type="email"
           autoFocus
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="you@airaa.xyz"
+          className={cls}
+        />
+        <input
+          type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          placeholder="Foundry password"
-          className="border-input bg-popover focus-visible:border-primary h-9 w-full rounded-md border px-3 text-sm outline-none"
+          placeholder="Password"
+          className={cls}
         />
         {error ? <p className="text-destructive-foreground text-xs">{error}</p> : null}
         <Button type="submit" disabled={busy} className="w-full">
-          {busy ? <Spinner /> : null}
-          Continue
+          {busy ? <Spinner /> : null}Continue
         </Button>
       </form>
     </div>
   );
 }
 
-function StatePill({ task }: { task: Task }) {
-  const label = task.running ? "running" : task.state.replace("_", " ");
-  const variant =
-    task.state === "failed" || task.state === "rejected"
-      ? "destructive"
-      : task.state === "awaiting_gate"
-        ? "warning"
+const pillVariant = (state: string) =>
+  state === "parked" || state === "rejected" || state === "cancelled"
+    ? "destructive"
+    : state === "awaiting_gate" || state === "awaiting_answers"
+      ? "warning"
+      : state === "done"
+        ? "outline"
         : "secondary";
+const busyState = (s: string) =>
+  ["preparing", "questioning", "running", "collecting", "testing"].includes(s);
+
+function StatePill({ state }: { state: string }) {
   return (
-    <Badge variant={variant as never} className="gap-1 font-mono text-[10px]">
-      {task.running ? <Spinner className="size-2.5" /> : null}
-      {label}
+    <Badge variant={pillVariant(state) as never} className="gap-1 font-mono text-[10px]">
+      {busyState(state) ? <Spinner className="size-2.5" /> : null}
+      {state.replace("_", " ")}
     </Badge>
   );
 }
 
-/** Four-segment progress rail — how far this task has travelled. */
-function Rail({ stages, task }: { stages: StageMeta[]; task: Task }) {
+function Rail({ task, currentRun }: { task: Task; currentRun: Run | undefined }) {
+  const stages = task.pipeline_snapshot;
   const at = stages.findIndex((s) => s.name === task.stage);
   return (
     <div className="mt-2 flex gap-[3px]">
-      {stages.map((stage, i) => {
-        const done = task.state === "done" || i < at;
-        const now = i === at;
+      {stages.map((s, i) => {
+        const done = task.state === "done" || i < at || (i === at && currentRun?.state === "done");
+        const cls = done
+          ? "bg-primary"
+          : i === at
+            ? currentRun?.state === "parked"
+              ? "bg-destructive"
+              : "bg-primary/45"
+            : "bg-border";
         return (
-          <span
-            key={stage.name}
-            className={`h-[3px] flex-1 rounded-full ${
-              done ? "bg-primary" : now ? "bg-primary/45" : "bg-border"
-            }`}
-          />
+          <span key={s.name} title={s.name} className={`h-[3px] flex-1 rounded-full ${cls}`} />
         );
       })}
     </div>
@@ -137,16 +186,16 @@ function Rail({ stages, task }: { stages: StageMeta[]; task: Task }) {
 }
 
 function markdown(src: string): ReactNode {
-  // Deliberately minimal: artifacts are agent-written markdown, and pulling a
-  // parser in for a preview pane is not worth the bundle.
   return src.split("\n").map((line, i) => {
-    const heading = /^(#{1,3})\s+(.*)/.exec(line);
-    if (heading) {
-      const depth = heading[1]?.length ?? 1;
-      const size = depth === 1 ? "text-base" : depth === 2 ? "text-sm" : "text-xs";
+    const h = /^(#{1,3})\s+(.*)/.exec(line);
+    if (h) {
+      const d = h[1]?.length ?? 1;
       return (
-        <p key={i} className={`${size} text-foreground mt-3 mb-1 font-semibold`}>
-          {heading[2] ?? ""}
+        <p
+          key={i}
+          className={`${d === 1 ? "text-base" : d === 2 ? "text-sm" : "text-xs"} text-foreground mt-3 mb-1 font-semibold`}
+        >
+          {h[2] ?? ""}
         </p>
       );
     }
@@ -165,132 +214,250 @@ function markdown(src: string): ReactNode {
   });
 }
 
-function PipelinePage() {
-  const [board, setBoard] = useState<BoardState | null>(null);
-  const [detail, setDetail] = useState<Detail | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [viewStage, setViewStage] = useState<string | null>(null);
-  const [needsAuth, setNeedsAuth] = useState(false);
+function NewTask({
+  pipelines,
+  repos,
+  users,
+  onCreated,
+}: {
+  pipelines: PipelineDef[];
+  repos: Repo[];
+  users: User[];
+  onCreated: (id: string) => void;
+}) {
   const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [pipeline, setPipeline] = useState(pipelines[0]?.name ?? "feature");
+  const [repo, setRepo] = useState(repos.find((r) => r.clone_state === "cloned")?.id ?? "");
+  const [assignee, setAssignee] = useState("");
   const [busy, setBusy] = useState(false);
-  const selectedRef = useRef<string | null>(null);
-  selectedRef.current = selected;
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    if (!repo && repos.length) setRepo(repos.find((r) => r.clone_state === "cloned")?.id ?? "");
+  }, [repos, repo]);
+  useEffect(() => {
+    if (!pipelines.some((p) => p.name === pipeline) && pipelines[0]) setPipeline(pipelines[0].name);
+  }, [pipelines, pipeline]);
+  const sel = "border-input bg-popover h-9 rounded-md border px-2 text-sm";
+  const submit = async () => {
+    if (!title.trim() || !repo) return;
+    setBusy(true);
+    setErr(null);
+    const r = await call<{ task?: Task; error?: string }>("/api/tasks", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title,
+        description,
+        pipeline,
+        repo_id: repo,
+        assignee_id: assignee || null,
+      }),
+    });
+    setBusy(false);
+    if (unauthorized(r)) return;
+    if (r.error) {
+      setErr(r.error);
+      return;
+    }
+    setTitle("");
+    setDescription("");
+    onCreated(r.task!.id);
+  };
+  return (
+    <div className="bg-popover mb-4 rounded-md border p-3">
+      <div className="flex flex-wrap gap-2">
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="What do you want to build?"
+          className="border-input bg-background focus-visible:border-primary h-9 min-w-[240px] flex-1 rounded-md border px-3 text-sm outline-none"
+        />
+        <select value={pipeline} onChange={(e) => setPipeline(e.target.value)} className={sel}>
+          {pipelines.map((p) => (
+            <option key={p.name} value={p.name}>
+              {p.name} · {p.stages.length} stage{p.stages.length === 1 ? "" : "s"}
+            </option>
+          ))}
+        </select>
+        <select value={repo} onChange={(e) => setRepo(e.target.value)} className={sel}>
+          {repos.map((r) => (
+            <option key={r.id} value={r.id} disabled={r.clone_state !== "cloned"}>
+              {r.name}
+              {r.clone_state !== "cloned" ? ` (${r.clone_state})` : ""}
+            </option>
+          ))}
+        </select>
+        <select value={assignee} onChange={(e) => setAssignee(e.target.value)} className={sel}>
+          <option value="">unassigned</option>
+          {users.map((u) => (
+            <option key={u.id} value={u.id}>
+              {u.name}
+            </option>
+          ))}
+        </select>
+        <Button onClick={() => void submit()} disabled={busy || !title.trim() || !repo}>
+          {busy ? <Spinner /> : null}Create
+        </Button>
+      </div>
+      <textarea
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        placeholder="Context for the agent: who has the problem, what exists today, what 'done' looks like."
+        rows={2}
+        className="border-input bg-background focus-visible:border-primary mt-2 w-full rounded-md border px-3 py-2 text-sm outline-none"
+      />
+      {err ? <p className="text-destructive-foreground mt-2 text-xs">{err}</p> : null}
+    </div>
+  );
+}
+
+function PipelinePage() {
+  const [needsAuth, setNeedsAuth] = useState(false);
+  const [me, setMe] = useState<User | null>(null);
+  const [pipelines, setPipelines] = useState<PipelineDef[]>([]);
+  const [repos, setRepos] = useState<Repo[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [detail, setDetail] = useState<Detail | null>(null);
+  const [viewArtifact, setViewArtifact] = useState<{ meta: ArtifactMeta; content: string } | null>(
+    null,
+  );
+  const [envId, setEnvId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const selRef = useRef<string | null>(null);
+  selRef.current = selected;
+
+  // T3's own environment id, for thread deep links (/$environmentId/$threadId).
+  useEffect(() => {
+    fetch("/.well-known/t3/environment", { credentials: "include" })
+      .then((r) => r.json())
+      .then((d: { environmentId?: string; id?: string }) =>
+        setEnvId(d.environmentId ?? d.id ?? null),
+      )
+      .catch(() => {});
+  }, []);
 
   const refresh = useCallback(async () => {
-    const state = await call<BoardState>("/api/state");
-    if (isUnauthorized(state)) {
+    const meRes = await call<{ user: User }>("/api/auth/me");
+    if (unauthorized(meRes)) {
       setNeedsAuth(true);
       return;
     }
     setNeedsAuth(false);
-    setBoard(state);
-    const id = selectedRef.current;
+    setMe(meRes.user);
+    const [p, r, u, t] = await Promise.all([
+      call<{ pipelines: PipelineDef[] }>("/api/pipelines"),
+      call<{ repos: Repo[] }>("/api/repos"),
+      call<{ users: User[] }>("/api/users"),
+      call<{ tasks: Task[] }>("/api/tasks"),
+    ]);
+    if (!unauthorized(p)) setPipelines(p.pipelines);
+    if (!unauthorized(r)) setRepos(r.repos);
+    if (!unauthorized(u)) setUsers(u.users);
+    if (!unauthorized(t)) setTasks(t.tasks);
+    const id = selRef.current;
     if (id) {
-      const query = viewStage ? `?stage=${viewStage}` : "";
-      const d = await call<Detail>(`/api/tasks/${id}${query}`);
-      if (!isUnauthorized(d)) setDetail(d);
+      const d = await call<Detail>(`/api/tasks/${id}/runs`);
+      if (!unauthorized(d)) setDetail(d);
     }
-  }, [viewStage]);
+  }, []);
 
   useEffect(() => {
     void refresh();
-    const timer = setInterval(() => {
+    const t = setInterval(() => {
       if (!busy) void refresh();
-    }, 2500);
-    return () => clearInterval(timer);
+    }, 3000);
+    return () => clearInterval(t);
   }, [refresh, busy]);
 
-  const start = async () => {
-    if (!title.trim()) return;
-    const created = await call<{ id: string }>("/api/tasks", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ title: title.trim() }),
-    });
-    setTitle("");
-    if (!isUnauthorized(created)) {
-      setSelected(created.id);
-      setViewStage(null);
-    }
+  const act = async (path: string) => {
+    setBusy(true);
+    const r = await call<{ error?: string }>(path, { method: "POST" });
+    setBusy(false);
+    if (!unauthorized(r) && r.error) window.alert(r.error);
     void refresh();
   };
-
-  const decide = async (decision: string, feedback?: string) => {
-    if (!selected || busy) return;
-    setBusy(true);
-    const res = await call<{ error?: string }>(`/api/tasks/${selected}/gate`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ decision, feedback }),
-    });
-    setBusy(false);
-    setViewStage(null);
-    if (!isUnauthorized(res) && res.error) window.alert(res.error);
-    void refresh();
+  const openArtifact = async (meta: ArtifactMeta) => {
+    const res = await fetch(`${API}/api/artifacts/${meta.id}?raw=1`, { credentials: "include" });
+    setViewArtifact({ meta, content: await res.text() });
   };
 
   if (needsAuth) return <SignIn onDone={() => void refresh()} />;
-  if (!board)
-    return (
-      <div className="text-muted-foreground flex h-full items-center justify-center gap-2 text-sm">
-        <Spinner /> Loading pipeline…
-      </div>
-    );
-
-  const columns = [
-    ...board.stages.map((stage) => ({
-      key: stage.name,
-      tasks: board.tasks.filter((t) => t.stage === stage.name && t.state !== "done"),
-    })),
-    { key: "shipped", tasks: board.tasks.filter((t) => t.state === "done") },
+  const task = tasks.find((t) => t.id === selected) ?? null;
+  const currentRun = detail?.runs.at(-1);
+  const stageNames = pipelines.find((p) => p.name === "feature")?.stages.map((s) => s.name) ?? [
+    "one-pager",
+    "mockup",
+    "prd",
+    "build",
   ];
-  const atGate = detail?.task.state === "awaiting_gate" && detail.view === detail.task.stage;
+  const columns = [
+    ...stageNames.map((name) => ({
+      key: name,
+      tasks: tasks.filter((t) => t.state === "open" && t.stage === name),
+    })),
+    { key: "shipped", tasks: tasks.filter((t) => t.state === "done") },
+  ];
 
   return (
     <div className="flex h-full min-h-0">
       <div className="min-w-0 flex-1 overflow-auto p-4">
-        <div className="mb-4 flex max-w-2xl gap-2">
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void start();
-            }}
-            placeholder="What do you want to build?"
-            className="border-input bg-popover focus-visible:border-primary h-9 flex-1 rounded-md border px-3 text-sm outline-none"
-          />
-          <Button onClick={() => void start()}>Start</Button>
+        <div className="mb-3 flex items-center gap-3">
+          <h1 className="text-foreground text-sm font-semibold">Pipeline</h1>
+          <span className="text-muted-foreground font-mono text-[11px]">
+            {me?.name} · {me?.role}
+          </span>
         </div>
-
-        <div className="flex gap-3">
-          {columns.map((column) => (
-            <div key={column.key} className="min-w-0 flex-1">
+        <NewTask
+          pipelines={pipelines}
+          repos={repos}
+          users={users}
+          onCreated={(id) => {
+            setSelected(id);
+            void refresh();
+          }}
+        />
+        <div className="flex gap-3 overflow-x-auto">
+          {columns.map((col) => (
+            <div key={col.key} className="min-w-[200px] flex-1">
               <div className="mb-2 flex items-baseline gap-2 px-1">
                 <span className="text-muted-foreground text-[10px] font-semibold tracking-[0.08em] uppercase">
-                  {column.key}
+                  {col.key}
                 </span>
                 <span className="text-muted-foreground/60 font-mono text-[10px]">
-                  {column.tasks.length || ""}
+                  {col.tasks.length || ""}
                 </span>
               </div>
-              {column.tasks.map((task) => (
+              {col.tasks.map((t) => (
                 <button
-                  key={task.id}
+                  key={t.id}
                   onClick={() => {
-                    setSelected(task.id);
-                    setViewStage(null);
+                    setSelected(t.id);
+                    setViewArtifact(null);
                   }}
-                  className={`bg-popover mb-2 w-full rounded-md border p-3 text-left transition-colors ${
-                    selected === task.id ? "border-primary" : "border-border hover:border-input"
-                  }`}
+                  className={`bg-popover mb-2 w-full rounded-md border p-3 text-left transition-colors ${selected === t.id ? "border-primary" : "border-border hover:border-input"}`}
                 >
-                  <span className="text-foreground line-clamp-2 text-[13px] font-medium">
-                    {task.title}
-                  </span>
-                  <Rail stages={board.stages} task={task} />
-                  <span className="mt-2 flex">
-                    <StatePill task={task} />
-                  </span>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-foreground line-clamp-2 text-[13px] font-medium">
+                      {t.title}
+                    </span>
+                    <span className="text-muted-foreground shrink-0 font-mono text-[10px]">
+                      {t.ticket}
+                    </span>
+                  </div>
+                  <Rail task={t} currentRun={selected === t.id ? currentRun : undefined} />
+                  <div className="mt-2 flex items-center gap-2">
+                    <span className="text-muted-foreground font-mono text-[10px]">
+                      {t.pipeline}
+                    </span>
+                    {t.assignee_id ? (
+                      <span className="text-muted-foreground font-mono text-[10px]">
+                        · {users.find((u) => u.id === t.assignee_id)?.name ?? "?"}
+                      </span>
+                    ) : null}
+                  </div>
                 </button>
               ))}
             </div>
@@ -298,118 +465,157 @@ function PipelinePage() {
         </div>
       </div>
 
-      <aside className="bg-popover w-[440px] shrink-0 overflow-auto border-l p-4">
-        {!detail ? (
-          <p className="text-muted-foreground py-16 text-center text-sm">
-            Select a task to review it
-          </p>
+      <aside className="bg-popover w-[460px] shrink-0 overflow-auto border-l p-4">
+        {!task ? (
+          <p className="text-muted-foreground py-16 text-center text-sm">Select a task</p>
         ) : (
           <>
-            <h2 className="text-foreground text-[15px] font-semibold">{detail.task.title}</h2>
-            <div className="mt-2 mb-3 flex items-center gap-2">
-              <StatePill task={detail.task} />
-              {detail.task.attempt > 1 ? (
-                <span className="text-muted-foreground font-mono text-[10px]">
-                  attempt {detail.task.attempt}
-                </span>
-              ) : null}
+            <div className="flex items-baseline justify-between gap-2">
+              <h2 className="text-foreground text-[15px] font-semibold">{task.title}</h2>
+              <span className="text-muted-foreground font-mono text-[11px]">{task.ticket}</span>
             </div>
-
-            {detail.task.error ? (
-              <p className="border-warning/32 bg-warning-surface text-warning-foreground mb-3 rounded-md border px-3 py-2 text-xs">
-                {detail.task.error}
+            <p className="text-muted-foreground mt-1 font-mono text-[11px]">
+              {task.pipeline} · {repos.find((r) => r.id === task.repo_id)?.name} ·{" "}
+              <code>{task.branch}</code>
+            </p>
+            {task.description ? (
+              <p className="text-muted-foreground mt-2 text-xs whitespace-pre-wrap">
+                {task.description}
               </p>
             ) : null}
 
-            <div className="mb-3 flex gap-1 border-b">
-              {detail.stages.map((stage) => (
-                <button
-                  key={stage.name}
-                  disabled={!stage.hasArtifact}
-                  onClick={() => setViewStage(stage.name)}
-                  className={`flex items-center gap-1 border-b-2 px-2 py-1.5 font-mono text-[11px] transition-colors ${
-                    stage.name === detail.view
-                      ? "border-primary text-foreground"
-                      : "text-muted-foreground border-transparent"
-                  } ${stage.hasArtifact ? "hover:text-foreground" : "opacity-40"}`}
-                >
-                  {stage.decision === "approve" ? (
-                    <CheckIcon className="size-3" />
-                  ) : stage.current ? (
-                    <CircleDotIcon className="size-3" />
-                  ) : null}
-                  {stage.name}
-                </button>
-              ))}
-            </div>
+            {!detail || detail.runs.length === 0 ? (
+              task.state === "open" ? (
+                <div className="mt-4">
+                  <Button onClick={() => void act(`/api/tasks/${task.id}/start`)} disabled={busy}>
+                    <PlayIcon /> Start pipeline
+                  </Button>
+                  <p className="text-muted-foreground mt-2 text-xs">
+                    Runs the first stage as a T3 thread on <code>{task.branch}</code>.
+                  </p>
+                </div>
+              ) : null
+            ) : (
+              <div className="mt-4 space-y-2">
+                {detail.runs.map((r) => {
+                  const gate = detail.gates.find((g) => g.stage_run_id === r.id);
+                  const art = detail.artifacts.find((a) => a.id === r.artifact_id);
+                  return (
+                    <div key={r.id} className="rounded-md border p-2.5">
+                      <div className="flex items-center gap-2">
+                        {r.state === "done" ? (
+                          <CheckIcon className="text-primary size-3.5" />
+                        ) : busyState(r.state) ? (
+                          <CircleDotIcon className="text-primary size-3.5" />
+                        ) : null}
+                        <span className="text-foreground text-sm font-medium">{r.stage}</span>
+                        {r.attempt > 1 ? (
+                          <span className="text-muted-foreground font-mono text-[10px]">
+                            v{r.attempt}
+                          </span>
+                        ) : null}
+                        <span className="ml-auto" />
+                        <StatePill state={r.state} />
+                      </div>
+                      <div className="text-muted-foreground mt-1 flex flex-wrap gap-x-3 font-mono text-[10px]">
+                        {r.head_sha ? <span>commit {r.head_sha.slice(0, 7)}</span> : null}
+                        {r.active_ms ? (
+                          <span>{Math.round(Number(r.active_ms) / 1000)}s active</span>
+                        ) : null}
+                        {r.park_reason ? (
+                          <span className="text-destructive-foreground">{r.park_reason}</span>
+                        ) : null}
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {r.t3_thread_id ? (
+                          envId ? (
+                            <Link
+                              to="/$environmentId/$threadId"
+                              params={{ environmentId: envId, threadId: r.t3_thread_id }}
+                              className="text-primary inline-flex items-center gap-1 text-xs hover:underline"
+                            >
+                              <ExternalLinkIcon className="size-3" /> Open thread
+                            </Link>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">
+                              thread {r.t3_thread_id.slice(0, 8)}
+                            </span>
+                          )
+                        ) : null}
+                        {art ? (
+                          <Button
+                            size="xs"
+                            variant="outline"
+                            onClick={() => void openArtifact(art)}
+                          >
+                            View {art.kind === "html" ? "mockup" : art.stage} v{art.version}
+                          </Button>
+                        ) : null}
+                        {r.state === "parked" ? (
+                          <Button
+                            size="xs"
+                            variant="outline"
+                            onClick={() => void act(`/api/runs/${r.id}/retry`)}
+                            disabled={busy}
+                          >
+                            <RotateCwIcon /> Retry
+                          </Button>
+                        ) : null}
+                        {busyState(r.state) || r.state === "queued" ? (
+                          <Button
+                            size="xs"
+                            variant="ghost-muted"
+                            onClick={() => {
+                              if (window.confirm("Cancel this run?"))
+                                void act(`/api/runs/${r.id}/cancel`);
+                            }}
+                            disabled={busy}
+                          >
+                            <XIcon /> Cancel
+                          </Button>
+                        ) : null}
+                        {gate && !gate.decided_at ? (
+                          <span className="text-warning-foreground self-center text-xs">
+                            awaiting your decision (gate actions arrive with M4)
+                          </span>
+                        ) : null}
+                      </div>
+                      {r.park_reason && r.park_detail ? (
+                        <pre className="text-muted-foreground bg-background mt-2 max-h-40 overflow-auto rounded border p-2 font-mono text-[10px] whitespace-pre-wrap">
+                          {JSON.stringify(r.park_detail, null, 1).slice(0, 2000)}
+                        </pre>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
-            {detail.artifact ? (
-              detail.artifact.kind === "html" ? (
-                <>
+            {viewArtifact ? (
+              <div className="mt-4">
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="text-muted-foreground font-mono text-[11px]">
+                    {viewArtifact.meta.stage} · v{viewArtifact.meta.version} ·{" "}
+                    {viewArtifact.meta.author_id ? "edited" : "agent"}
+                  </span>
+                  <Button size="xs" variant="ghost-muted" onClick={() => setViewArtifact(null)}>
+                    close
+                  </Button>
+                </div>
+                {viewArtifact.meta.kind === "html" ? (
                   <iframe
                     title="mockup"
                     sandbox="allow-scripts"
-                    src={`${API}/api/tasks/${detail.task.id}/artifact?stage=${detail.view}&version=${detail.artifact.version}`}
+                    srcDoc={viewArtifact.content}
                     className="h-[46vh] w-full rounded-md border bg-white"
                   />
-                  <a
-                    href={`${API}/api/tasks/${detail.task.id}/artifact?stage=${detail.view}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-muted-foreground hover:text-foreground mt-1 inline-flex items-center gap-1 font-mono text-[11px]"
-                  >
-                    <ExternalLinkIcon className="size-3" /> open full size
-                  </a>
-                </>
-              ) : (
-                <div className="bg-background max-h-[46vh] overflow-auto rounded-md border p-3">
-                  {markdown(detail.artifact.content)}
-                </div>
-              )
-            ) : (
-              <p className="text-muted-foreground bg-background rounded-md border py-10 text-center text-sm">
-                {detail.task.running ? "Agent is working…" : "Nothing produced yet"}
-              </p>
-            )}
-
-            {atGate ? (
-              <div className="mt-4 flex flex-wrap gap-2">
-                <Button onClick={() => void decide("approve")} disabled={busy}>
-                  Approve
-                </Button>
-                <Button
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() => {
-                    const feedback = window.prompt("What should change?");
-                    if (feedback?.trim()) void decide("revise", feedback);
-                  }}
-                >
-                  Revise
-                </Button>
+                ) : (
+                  <div className="bg-background max-h-[46vh] overflow-auto rounded-md border p-3">
+                    {markdown(viewArtifact.content)}
+                  </div>
+                )}
               </div>
             ) : null}
-
-            {detail.task.state === "failed" ? (
-              <Button
-                variant="outline"
-                className="mt-4"
-                onClick={() => {
-                  void call(`/api/tasks/${detail.task.id}/retry`, { method: "POST" }).then(refresh);
-                }}
-              >
-                <RotateCwIcon /> Retry stage
-              </Button>
-            ) : null}
-
-            <details className="mt-4">
-              <summary className="text-muted-foreground cursor-pointer font-mono text-[11px]">
-                Agent log
-              </summary>
-              <pre className="text-muted-foreground bg-background mt-2 max-h-56 overflow-auto rounded-md border p-2 font-mono text-[10px] whitespace-pre-wrap">
-                {detail.log?.slice(-6000) || "(empty)"}
-              </pre>
-            </details>
           </>
         )}
       </aside>
@@ -417,6 +623,4 @@ function PipelinePage() {
   );
 }
 
-export const Route = createFileRoute("/_chat/pipeline")({
-  component: PipelinePage,
-});
+export const Route = createFileRoute("/_chat/pipeline")({ component: PipelinePage });
