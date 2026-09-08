@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BellIcon, PlusIcon } from "lucide-react";
+import { BellIcon, PlusIcon, SearchIcon, XIcon } from "lucide-react";
 
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -20,9 +20,11 @@ import { cn } from "~/lib/utils";
 
 import {
   ago,
+  BUSY,
   call,
   initials,
   NEEDS_HUMAN,
+  patch,
   post,
   toneOf,
   unauthorized,
@@ -189,6 +191,10 @@ function TaskCard({
   waiting,
   onSelect,
   now,
+  movable,
+  dragging,
+  onDragStart,
+  onDragEnd,
 }: {
   task: Task;
   runs: Run[];
@@ -197,6 +203,10 @@ function TaskCard({
   waiting: Run | undefined;
   onSelect: () => void;
   now: number;
+  movable: boolean;
+  dragging: boolean;
+  onDragStart: () => void;
+  onDragEnd: () => void;
 }) {
   const assignee = users.find((u) => u.id === task.assignee_id);
   const current = runs.at(-1);
@@ -204,12 +214,23 @@ function TaskCard({
     <button
       type="button"
       onClick={onSelect}
+      draggable={movable}
+      onDragStart={(e) => {
+        if (!movable) return e.preventDefault();
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", task.id);
+        onDragStart();
+      }}
+      onDragEnd={onDragEnd}
+      title={movable ? "Drag to another stage" : "Running — stop it before moving it"}
       className={cn(
         "group relative w-full rounded-xl border bg-card/40 px-3 py-2.5 text-left transition-colors",
         selected
           ? "border-primary/60 bg-card/70"
           : "border-border/60 hover:border-border hover:bg-card/60",
         waiting && "border-warning/40",
+        movable && "cursor-grab active:cursor-grabbing",
+        dragging && "opacity-40",
       )}
     >
       {waiting ? (
@@ -267,6 +288,12 @@ function PipelinePage() {
   const [composing, setComposing] = useState(false);
   const [envId, setEnvId] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [query, setQuery] = useState("");
+  const [filterAssignee, setFilterAssignee] = useState<string | null>(null);
+  const [filterRepo, setFilterRepo] = useState<string | null>(null);
+  const [dragTask, setDragTask] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [moveError, setMoveError] = useState<string | null>(null);
 
   const selRef = useRef<string | null>(null);
   selRef.current = selected;
@@ -348,6 +375,34 @@ function PipelinePage() {
   );
   const mine = useMemo(() => waiting.filter((t) => t.assignee_id === me?.id), [waiting, me]);
 
+  /** Dropping a card moves the task. It never starts anything — Start does that. */
+  const move = useCallback(
+    async (taskId: string, stage: string) => {
+      const before = tasks;
+      setMoveError(null);
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === taskId
+            ? {
+                ...t,
+                stage: stage === "shipped" ? t.stage : stage,
+                state: stage === "shipped" ? ("done" as const) : ("open" as const),
+              }
+            : t,
+        ),
+      );
+      const r = await patch<{ error?: string }>(`/api/tasks/${taskId}/stage`, { stage });
+      if (unauthorized(r)) return;
+      if (r.error) {
+        setTasks(before); // the server refused; put it back where it was
+        setMoveError(r.error);
+        return;
+      }
+      void refresh();
+    },
+    [tasks, refresh],
+  );
+
   const stageNames = useMemo(() => {
     const longest = pipelines.reduce<PipelineDef | null>(
       (acc, p) => (!acc || p.stages.length > acc.stages.length ? p : acc),
@@ -356,13 +411,24 @@ function PipelinePage() {
     return longest?.stages.map((s) => s.name) ?? ["one-pager", "mockup", "prd", "build"];
   }, [pipelines]);
 
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return tasks.filter(
+      (t) =>
+        (!q || t.title.toLowerCase().includes(q) || t.ticket.toLowerCase().includes(q)) &&
+        (!filterAssignee || t.assignee_id === filterAssignee) &&
+        (!filterRepo || t.repo_id === filterRepo),
+    );
+  }, [tasks, query, filterAssignee, filterRepo]);
+
   const columns = useMemo(() => {
-    const open = tasks.filter((t) => t.state === "open");
+    const open = visible.filter((t) => t.state === "open");
     return [
       ...stageNames.map((name) => ({ key: name, tasks: open.filter((t) => t.stage === name) })),
-      { key: "shipped", tasks: tasks.filter((t) => t.state === "done") },
+      { key: "shipped", tasks: visible.filter((t) => t.state === "done") },
     ];
-  }, [tasks, stageNames]);
+  }, [visible, stageNames]);
+  const filtered = visible.length !== tasks.length;
 
   const task = tasks.find((t) => t.id === selected) ?? null;
 
@@ -428,14 +494,62 @@ function PipelinePage() {
       {tab === "board" ? (
         <div className="flex min-h-0 flex-1">
           <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-            <div className="flex items-center gap-2 px-5 pt-1 pb-3">
+            <div className="flex flex-wrap items-center gap-2 px-5 pt-1 pb-3">
               <Button size="sm" onClick={() => setComposing((v) => !v)}>
                 <PlusIcon /> New task
               </Button>
+              <div className="relative">
+                <SearchIcon className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  size="sm"
+                  value={query}
+                  placeholder="Search"
+                  onChange={(e) => setQuery((e.target as HTMLInputElement).value)}
+                  className="w-40 pl-7"
+                />
+              </div>
+              <Button
+                size="xs"
+                variant={filterAssignee ? "secondary" : "ghost-muted"}
+                onClick={() => setFilterAssignee(filterAssignee ? null : (me?.id ?? null))}
+              >
+                Mine
+              </Button>
+              {repos.length > 1 ? (
+                <select
+                  value={filterRepo ?? ""}
+                  onChange={(e) => setFilterRepo(e.target.value || null)}
+                  className="h-7 rounded-md border border-input bg-background px-2 text-xs text-foreground"
+                >
+                  <option value="">All repositories</option>
+                  {repos.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+              {filtered ? (
+                <Button
+                  size="xs"
+                  variant="ghost-muted"
+                  onClick={() => {
+                    setQuery("");
+                    setFilterAssignee(null);
+                    setFilterRepo(null);
+                  }}
+                >
+                  <XIcon /> Clear
+                </Button>
+              ) : null}
               <span className="text-[11px] text-muted-foreground">
-                {tasks.filter((t) => t.state === "open").length} open ·{" "}
-                {tasks.filter((t) => t.state === "done").length} shipped
+                {visible.filter((t) => t.state === "open").length} open ·{" "}
+                {visible.filter((t) => t.state === "done").length} shipped
+                {filtered ? ` · ${tasks.length - visible.length} hidden` : ""}
               </span>
+              {moveError ? (
+                <span className="text-[11px] text-destructive-foreground">{moveError}</span>
+              ) : null}
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
@@ -473,7 +587,28 @@ function PipelinePage() {
               ) : (
                 <div className="-mx-1 flex gap-2.5 overflow-x-auto px-1 pb-2 [mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)]">
                   {columns.map((col) => (
-                    <div key={col.key} className="w-[168px] shrink-0 space-y-2 xl:w-[196px]">
+                    <div
+                      key={col.key}
+                      onDragOver={(e) => {
+                        if (!dragTask) return;
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "move";
+                        setDropTarget(col.key);
+                      }}
+                      onDragLeave={() => setDropTarget((d) => (d === col.key ? null : d))}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        const id = e.dataTransfer.getData("text/plain") || dragTask;
+                        setDropTarget(null);
+                        setDragTask(null);
+                        if (id) void move(id, col.key);
+                      }}
+                      className={cn(
+                        "w-[168px] shrink-0 space-y-2 rounded-xl xl:w-[196px]",
+                        dropTarget === col.key &&
+                          "bg-primary/6 outline-2 outline-dashed outline-primary/40",
+                      )}
+                    >
                       <div className="flex items-baseline gap-1.5 px-0.5">
                         <span className="text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
                           {col.key}
@@ -484,7 +619,7 @@ function PipelinePage() {
                       </div>
                       {col.tasks.length === 0 ? (
                         <div className="rounded-xl border border-dashed border-border/50 px-3 py-4 text-center text-[11px] text-muted-foreground/50">
-                          nothing here
+                          {dragTask ? "drop here" : "nothing here"}
                         </div>
                       ) : null}
                       {col.tasks.map((t) => (
@@ -497,6 +632,13 @@ function PipelinePage() {
                           waiting={waitingRun(t.id)}
                           onSelect={() => setSelected(t.id)}
                           now={now}
+                          movable={!runsOf(t.id).some((r) => BUSY.has(r.state))}
+                          dragging={dragTask === t.id}
+                          onDragStart={() => setDragTask(t.id)}
+                          onDragEnd={() => {
+                            setDragTask(null);
+                            setDropTarget(null);
+                          }}
                         />
                       ))}
                     </div>

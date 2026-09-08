@@ -34,6 +34,7 @@ import {
 import { ArtifactViewer, DiffView } from "./Artifact";
 import { GatePanel, QuestionsPanel } from "./HumanPanels";
 import { ActiveTime, SpineNode } from "./Spine";
+import { Workspace } from "./Workspace";
 import { StateBadge } from "./StateBadge";
 
 /**
@@ -164,6 +165,8 @@ export function TaskDetail({
             })}
           </ol>
         )}
+
+        <Workspace taskId={task.id} onChanged={onChanged} />
 
         {view?.kind === "artifact" ? (
           <ArtifactViewer

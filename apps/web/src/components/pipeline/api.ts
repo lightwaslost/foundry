@@ -165,6 +165,25 @@ export interface Detail {
   artifacts: ArtifactMeta[];
 }
 
+export interface Comment {
+  id: string;
+  task_id: string;
+  author_id: string | null;
+  author: string | null;
+  body: string;
+  created_at: string;
+}
+export interface AttachmentMeta {
+  id: string;
+  task_id: string;
+  uploaded_by: string | null;
+  uploader: string | null;
+  filename: string;
+  mime: string;
+  size: number;
+  created_at: string;
+}
+
 /** What a person may change per stage — for a whole pipeline or for one task. */
 export interface StageOverride {
   prompt?: string;
@@ -262,6 +281,20 @@ export function ago(iso: string | null, now: number): string {
   if (h < 24) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
 }
+
+export const patch = <T>(path: string, body: unknown) =>
+  call<T>(path, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+export const formatBytes = (n: number): string =>
+  n < 1024
+    ? `${n} B`
+    : n < 1024 * 1024
+      ? `${Math.round(n / 1024)} KB`
+      : `${(n / 1024 / 1024).toFixed(1)} MB`;
 
 export const initials = (name: string): string =>
   name
