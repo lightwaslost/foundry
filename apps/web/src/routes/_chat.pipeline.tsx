@@ -5,6 +5,13 @@ import { BellIcon, PlusIcon, SearchIcon, XIcon } from "lucide-react";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from "~/components/ui/select";
 import { Label } from "~/components/ui/label";
 import { Dialog, DialogPopup } from "~/components/ui/dialog";
 import { Sheet, SheetPopup } from "~/components/ui/sheet";
@@ -519,18 +526,24 @@ function PipelinePage() {
                 Mine
               </Button>
               {repos.length > 1 ? (
-                <select
-                  value={filterRepo ?? ""}
-                  onChange={(e) => setFilterRepo(e.target.value || null)}
-                  className="h-7 rounded-md border border-input bg-background px-2 text-xs text-foreground"
+                <Select
+                  value={filterRepo ?? "__all"}
+                  onValueChange={(v) => setFilterRepo(v === "__all" ? null : String(v))}
                 >
-                  <option value="">All repositories</option>
-                  {repos.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger size="sm" aria-label="Filter by repository" className="w-44">
+                    <SelectValue>
+                      {repos.find((r) => r.id === filterRepo)?.name ?? "All repositories"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup alignItemWithTrigger={false}>
+                    <SelectItem value="__all">All repositories</SelectItem>
+                    {repos.map((r) => (
+                      <SelectItem key={r.id} value={r.id}>
+                        {r.name}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
               ) : null}
               {filtered ? (
                 <Button

@@ -114,8 +114,14 @@ export function NewTask({
   };
 
   return (
-    <section className="rounded-xl border border-border/60 bg-card/40">
-      <div className="space-y-3 px-3 py-3">
+    <section className="flex max-h-[85vh] flex-col">
+      <header className="shrink-0 px-4 pt-4 pb-2">
+        <h2 className="text-sm font-medium tracking-[-0.005em] text-foreground">New task</h2>
+        <p className="text-[13px] text-muted-foreground">
+          An agent writes the first stage. Nothing runs until you start it.
+        </p>
+      </header>
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
         <div className="space-y-1.5">
           <Label htmlFor="task-title">What do you want built?</Label>
           <Input
@@ -131,6 +137,7 @@ export function NewTask({
           <Textarea
             id="task-context"
             size="sm"
+            className="max-h-[40vh] overflow-y-auto"
             value={description}
             placeholder="Who has the problem, what exists today, what done looks like, and anything you have already decided."
             onChange={(e) => setDescription(e.target.value)}
@@ -276,7 +283,7 @@ export function NewTask({
         {err ? <p className="text-xs text-destructive-foreground">{err}</p> : null}
       </div>
 
-      <footer className="flex items-center gap-2 border-t border-border/50 px-3 py-2">
+      <footer className="flex shrink-0 items-center gap-2 border-t border-border/50 px-4 py-3">
         <Button size="sm" onClick={() => void submit()} disabled={busy || !title.trim() || !repo}>
           {busy ? <Spinner /> : null}Create task
         </Button>

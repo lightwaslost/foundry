@@ -191,6 +191,7 @@ export function Workspace({ taskId, onChanged }: { taskId: string; onChanged: ()
         <div className="space-y-1.5 border-t border-border/50 px-3 py-2.5">
           <Textarea
             size="sm"
+            className="max-h-[30vh] overflow-y-auto"
             value={draft}
             placeholder="A note for the team and the agents — a decision, a constraint, something the ticket left out."
             onChange={(e) => setDraft(e.target.value)}

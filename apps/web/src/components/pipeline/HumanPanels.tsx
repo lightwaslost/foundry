@@ -226,6 +226,7 @@ export function GatePanel({
           <Textarea
             size="sm"
             autoFocus
+            className="max-h-[30vh] overflow-y-auto"
             value={feedback}
             placeholder="What is wrong with it? The stage runs again with this in front of the agent, keeping the answers it already has."
             onChange={(e) => setFeedback(e.target.value)}
@@ -273,7 +274,7 @@ export function GatePanel({
             value={draft}
             rows={16}
             onChange={(e) => setDraft(e.target.value)}
-            className="font-mono text-[12px]"
+            className="max-h-[50vh] overflow-y-auto font-mono text-[12px]"
           />
           <div className="flex gap-1.5">
             <Button
