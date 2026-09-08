@@ -639,7 +639,7 @@ function PipelinePage() {
           setComposing(open);
         }}
       >
-        <DialogPopup className="max-w-2xl p-0" aria-label="New task">
+        <DialogPopup className="max-w-4xl p-0" aria-label="New task">
           <NewTask
             pipelines={pipelines}
             repos={repos}
