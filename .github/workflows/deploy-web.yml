@@ -26,16 +26,32 @@ jobs:
           echo '187.127.191.239 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEuoqD//odUNPhh/1upsuZ6ZSXoYotlPaNmefwIJxLgB' >> ~/.ssh/known_hosts
 
       - name: ship web bundle (keep previous for rollback)
-        env: { H: "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" }
+        env:
+          H: "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}"
+          # Long-lived sessions over this link have dropped mid-deploy and reported a
+          # successful deploy as a failure. Keepalives here; the verdict is the verify step.
+          SSHOPTS: "-o ServerAliveInterval=15 -o ServerAliveCountMax=6 -o ConnectTimeout=20"
         run: |
-          rsync -az --delete apps/web/dist/ "$H:/tmp/t3-client-new/"
-          ssh "$H" bash -s <<'EOF'
+          rsync -az --delete --timeout=120 -e "ssh $SSHOPTS" apps/web/dist/ "$H:/tmp/t3-client-new/"
+          ssh $SSHOPTS "$H" bash -s <<'EOF'
           set -e
           D=/usr/lib/node_modules/t3/dist
           rm -rf "$D/client.prev"; [ -d "$D/client" ] && mv "$D/client" "$D/client.prev"
           mv /tmp/t3-client-new "$D/client"
           sudo systemctl restart t3
-          for i in $(seq 1 15); do sleep 2; curl -sf -o /dev/null http://172.17.0.1:4488/ && { echo healthy; exit 0; }; done
+          echo swapped
+          EOF
+        shell: bash
+
+      - name: verify (roll back if t3 is unhealthy)
+        env:
+          H: "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}"
+          SSHOPTS: "-o ServerAliveInterval=15 -o ServerAliveCountMax=6 -o ConnectTimeout=20"
+        run: |
+          ssh $SSHOPTS "$H" bash -s <<'EOF'
+          set -e
+          D=/usr/lib/node_modules/t3/dist
+          for i in $(seq 1 20); do curl -sf -o /dev/null http://172.17.0.1:4488/ && { echo healthy; exit 0; }; sleep 3; done
           echo "t3 unhealthy — restoring previous client"
           rm -rf "$D/client"; mv "$D/client.prev" "$D/client"; sudo systemctl restart t3
           exit 1
