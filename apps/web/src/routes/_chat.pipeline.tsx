@@ -1,159 +1,103 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { BellIcon, PlusIcon } from "lucide-react";
+
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
+import { Input } from "~/components/ui/input";
+import { Label } from "~/components/ui/label";
+import { SidebarInset } from "~/components/ui/sidebar";
 import { Spinner } from "~/components/ui/spinner";
-import { createFileRoute, Link } from "@tanstack/react-router";
 import {
-  CheckIcon,
-  CircleDotIcon,
-  ExternalLinkIcon,
-  PencilIcon,
-  MessageCircleQuestionIcon,
-  PlayIcon,
-  RotateCwIcon,
-  Undo2Icon,
-  XIcon,
-} from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+  WorkspaceBreadcrumb,
+  WorkspaceBreadcrumbItem,
+  WorkspaceBreadcrumbSeparator,
+} from "~/components/WorkspaceBreadcrumb";
+import { WorkspacePageContainer } from "~/components/WorkspacePageContainer";
+import { WorkspacePageHeader } from "~/components/WorkspacePageHeader";
+import { isElectron } from "~/env";
+import { cn } from "~/lib/utils";
+
+import {
+  ago,
+  call,
+  initials,
+  NEEDS_HUMAN,
+  post,
+  toneOf,
+  unauthorized,
+  type Detail,
+  type PipelineDef,
+  type Repo,
+  type Run,
+  type Task,
+  type User,
+} from "~/components/pipeline/api";
+import { Docs } from "~/components/pipeline/Docs";
+import { NewTask } from "~/components/pipeline/NewTask";
+import { PipelineSettings } from "~/components/pipeline/PipelineSettings";
+import { Spine } from "~/components/pipeline/Spine";
+import { StateBadge } from "~/components/pipeline/StateBadge";
+import { TaskDetail } from "~/components/pipeline/TaskDetail";
 
 /**
- * Foundry pipeline board — a page inside T3.
+ * Foundry, as a page inside T3.
  *
- * Data comes from the Foundry service (proxied same-origin under /foundry-api),
- * which owns tasks, stage runs, artifacts and gates. T3 owns the agent threads;
- * each stage run links to its thread here, so "open the thread" is one click.
- * Gates, artifact versions and the agent's pre-flight questions are all answered here.
+ * The board is the whole product surface: tasks move left to right through the
+ * stages of their pipeline, and the only thing competing for attention is what is
+ * waiting on a person. T3 owns the agent sessions; Foundry (proxied same-origin
+ * under /foundry-api) owns tasks, runs, artifacts, questions and gates.
  */
-const API = "/foundry-api";
-
-type Stage = {
-  name: string;
-  kind: "markdown" | "html" | "pull_request";
-  gate: "human" | "auto";
-  provider: { instanceId: string; model: string };
-  skill: string | null;
-};
-type PipelineDef = { name: string; description: string | null; stages: Stage[] };
-type Repo = { id: string; name: string; default_branch: string; clone_state: string };
-type User = { id: string; name: string; email: string; role: string };
-type Task = {
-  id: string;
-  ticket: string;
-  title: string;
-  description: string;
-  repo_id: string;
-  pipeline: string;
-  pipeline_snapshot: Array<{ name: string; output: { kind: string; file?: string }; gate: string }>;
-  assignee_id: string | null;
-  branch: string;
-  stage: string | null;
-  state: "open" | "done" | "rejected" | "cancelled";
-  created_at: string;
-};
-type Run = {
-  id: string;
-  stage: string;
-  attempt: number;
-  state: string;
-  t3_thread_id: string | null;
-  queued_at: string;
-  started_at: string | null;
-  active_ms: number | string;
-  active_since: string | null;
-  timeout_ms: number;
-  head_sha: string | null;
-  artifact_id: string | null;
-  pr_url: string | null;
-  park_reason: string | null;
-  park_detail: unknown;
-  finished_at: string | null;
-};
-type Gate = {
-  id: string;
-  stage_run_id: string;
-  stage: string;
-  attempt: number;
-  artifact_id: string | null;
-  decision: string | null;
-  decided_at: string | null;
-};
-type ArtifactMeta = {
-  id: string;
-  stage: string;
-  version: number;
-  author_id: string | null;
-  kind: string;
-  created_at: string;
-};
-type Question = {
-  id: string;
-  stage_run_id: string;
-  request_id: string;
-  batch: number;
-  header: string | null;
-  question: string;
-  options: Array<{ label: string; description?: string }>;
-  multi_select: boolean;
-  allow_custom: boolean;
-  response_mode: string | null;
-  answer: unknown | null;
-  answered_by: string | null;
-  source: "foundry" | "t3" | null;
-};
-type Detail = { runs: Run[]; gates: Gate[]; artifacts: ArtifactMeta[] };
-
-async function call<T>(path: string, init?: RequestInit): Promise<T | { __unauthorized: true }> {
-  const res = await fetch(`${API}${path}`, { credentials: "include", ...init });
-  if (res.status === 401) return { __unauthorized: true };
-  return (await res.json()) as T;
-}
-const unauthorized = (v: unknown): v is { __unauthorized: true } =>
-  typeof v === "object" && v !== null && "__unauthorized" in v;
+type Tab = "board" | "pipelines" | "docs";
 
 function SignIn({ onDone }: { onDone: () => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError(null);
-    const res = await fetch(`${API}/api/auth/login`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    });
+    const r = await post<{ error?: string }>("/api/auth/login", { email, password });
     setBusy(false);
-    if (res.ok) onDone();
-    else setError("Invalid email or password.");
+    if (unauthorized(r) || (!unauthorized(r) && r.error))
+      return setError("That email and password did not match.");
+    onDone();
   };
-  const cls =
-    "border-input bg-popover focus-visible:border-primary h-9 w-full rounded-md border px-3 text-sm outline-none";
+
   return (
-    <div className="flex h-full items-center justify-center p-6">
-      <form onSubmit={submit} className="w-full max-w-xs space-y-3">
-        <div>
-          <h2 className="text-sm font-medium">Sign in to Foundry</h2>
-          <p className="text-muted-foreground text-xs">Named account, 30-day session.</p>
+    <div className="flex h-full items-center justify-center px-6">
+      <form onSubmit={submit} className="w-full max-w-72 space-y-3">
+        <div className="space-y-1">
+          <h2 className="text-sm font-medium text-foreground">Sign in to Foundry</h2>
+          <p className="text-[13px] text-muted-foreground">
+            Your own account. The session lasts 30 days.
+          </p>
         </div>
-        <input
-          type="email"
-          autoFocus
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="you@airaa.xyz"
-          className={cls}
-        />
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Password"
-          className={cls}
-        />
-        {error ? <p className="text-destructive-foreground text-xs">{error}</p> : null}
-        <Button type="submit" disabled={busy} className="w-full">
+        <div className="space-y-1.5">
+          <Label htmlFor="fnd-email">Email</Label>
+          <Input
+            id="fnd-email"
+            type="email"
+            autoFocus
+            value={email}
+            onChange={(e) => setEmail((e.target as HTMLInputElement).value)}
+            placeholder="you@rapidnode.xyz"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="fnd-password">Password</Label>
+          <Input
+            id="fnd-password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword((e.target as HTMLInputElement).value)}
+          />
+        </div>
+        {error ? <p className="text-xs text-destructive-foreground">{error}</p> : null}
+        <Button type="submit" className="w-full" disabled={busy}>
           {busy ? <Spinner /> : null}Continue
         </Button>
       </form>
@@ -161,494 +105,6 @@ function SignIn({ onDone }: { onDone: () => void }) {
   );
 }
 
-const pillVariant = (state: string) =>
-  state === "parked" || state === "rejected" || state === "cancelled"
-    ? "destructive"
-    : state === "awaiting_gate" || state === "awaiting_answers"
-      ? "warning"
-      : state === "done"
-        ? "outline"
-        : "secondary";
-const busyState = (s: string) =>
-  ["preparing", "questioning", "running", "collecting", "testing"].includes(s);
-
-function StatePill({ state }: { state: string }) {
-  return (
-    <Badge variant={pillVariant(state) as never} className="gap-1 font-mono text-[10px]">
-      {busyState(state) ? <Spinner className="size-2.5" /> : null}
-      {state.replace("_", " ")}
-    </Badge>
-  );
-}
-
-function Rail({ task, currentRun }: { task: Task; currentRun: Run | undefined }) {
-  const stages = task.pipeline_snapshot;
-  const at = stages.findIndex((s) => s.name === task.stage);
-  return (
-    <div className="mt-2 flex gap-[3px]">
-      {stages.map((s, i) => {
-        const done = task.state === "done" || i < at || (i === at && currentRun?.state === "done");
-        const cls = done
-          ? "bg-primary"
-          : i === at
-            ? currentRun?.state === "parked"
-              ? "bg-destructive"
-              : "bg-primary/45"
-            : "bg-border";
-        return (
-          <span key={s.name} title={s.name} className={`h-[3px] flex-1 rounded-full ${cls}`} />
-        );
-      })}
-    </div>
-  );
-}
-
-function markdown(src: string): ReactNode {
-  return src.split("\n").map((line, i) => {
-    const h = /^(#{1,3})\s+(.*)/.exec(line);
-    if (h) {
-      const d = h[1]?.length ?? 1;
-      return (
-        <p
-          key={i}
-          className={`${d === 1 ? "text-base" : d === 2 ? "text-sm" : "text-xs"} text-foreground mt-3 mb-1 font-semibold`}
-        >
-          {h[2] ?? ""}
-        </p>
-      );
-    }
-    if (/^\s*[-*]\s+/.test(line))
-      return (
-        <p key={i} className="text-muted-foreground ml-4 text-sm">
-          • {line.replace(/^\s*[-*]\s+/, "")}
-        </p>
-      );
-    if (!line.trim()) return null;
-    return (
-      <p key={i} className="text-muted-foreground my-1 text-sm">
-        {line}
-      </p>
-    );
-  });
-}
-
-function NewTask({
-  pipelines,
-  repos,
-  users,
-  onCreated,
-}: {
-  pipelines: PipelineDef[];
-  repos: Repo[];
-  users: User[];
-  onCreated: (id: string) => void;
-}) {
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [pipeline, setPipeline] = useState(pipelines[0]?.name ?? "feature");
-  const [repo, setRepo] = useState(repos.find((r) => r.clone_state === "cloned")?.id ?? "");
-  const [assignee, setAssignee] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  useEffect(() => {
-    if (!repo && repos.length) setRepo(repos.find((r) => r.clone_state === "cloned")?.id ?? "");
-  }, [repos, repo]);
-  useEffect(() => {
-    if (!pipelines.some((p) => p.name === pipeline) && pipelines[0]) setPipeline(pipelines[0].name);
-  }, [pipelines, pipeline]);
-  const sel = "border-input bg-popover h-9 rounded-md border px-2 text-sm";
-  const submit = async () => {
-    if (!title.trim() || !repo) return;
-    setBusy(true);
-    setErr(null);
-    const r = await call<{ task?: Task; error?: string }>("/api/tasks", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        title,
-        description,
-        pipeline,
-        repo_id: repo,
-        assignee_id: assignee || null,
-      }),
-    });
-    setBusy(false);
-    if (unauthorized(r)) return;
-    if (r.error) {
-      setErr(r.error);
-      return;
-    }
-    setTitle("");
-    setDescription("");
-    onCreated(r.task!.id);
-  };
-  return (
-    <div className="bg-popover mb-4 rounded-md border p-3">
-      <div className="flex flex-wrap gap-2">
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="What do you want to build?"
-          className="border-input bg-background focus-visible:border-primary h-9 min-w-[240px] flex-1 rounded-md border px-3 text-sm outline-none"
-        />
-        <select value={pipeline} onChange={(e) => setPipeline(e.target.value)} className={sel}>
-          {pipelines.map((p) => (
-            <option key={p.name} value={p.name}>
-              {p.name} · {p.stages.length} stage{p.stages.length === 1 ? "" : "s"}
-            </option>
-          ))}
-        </select>
-        <select value={repo} onChange={(e) => setRepo(e.target.value)} className={sel}>
-          {repos.map((r) => (
-            <option key={r.id} value={r.id} disabled={r.clone_state !== "cloned"}>
-              {r.name}
-              {r.clone_state !== "cloned" ? ` (${r.clone_state})` : ""}
-            </option>
-          ))}
-        </select>
-        <select value={assignee} onChange={(e) => setAssignee(e.target.value)} className={sel}>
-          <option value="">unassigned</option>
-          {users.map((u) => (
-            <option key={u.id} value={u.id}>
-              {u.name}
-            </option>
-          ))}
-        </select>
-        <Button onClick={() => void submit()} disabled={busy || !title.trim() || !repo}>
-          {busy ? <Spinner /> : null}Create
-        </Button>
-      </div>
-      <textarea
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
-        placeholder="Context for the agent: who has the problem, what exists today, what 'done' looks like."
-        rows={2}
-        className="border-input bg-background focus-visible:border-primary mt-2 w-full rounded-md border px-3 py-2 text-sm outline-none"
-      />
-      {err ? <p className="text-destructive-foreground mt-2 text-xs">{err}</p> : null}
-    </div>
-  );
-}
-
-type DiffPayload = {
-  from: { id: string; version: number; author_id: string | null };
-  to: { id: string; version: number; author_id: string | null };
-  diff: {
-    hunks: Array<{ lines: Array<{ type: "ctx" | "add" | "del"; text: string }> }>;
-    added: number;
-    deleted: number;
-  };
-};
-
-/** Unified diff between two versions of the same artifact. */
-function DiffView({
-  fromId,
-  toId,
-  onClose,
-}: {
-  fromId: string;
-  toId: string;
-  onClose: () => void;
-}) {
-  const [d, setD] = useState<DiffPayload | null>(null);
-  useEffect(() => {
-    void call<DiffPayload>(`/api/artifacts/${toId}/diff?against=${fromId}`).then((r) => {
-      if (!unauthorized(r)) setD(r);
-    });
-  }, [fromId, toId]);
-  if (!d) return <p className="text-muted-foreground text-xs">Loading diff…</p>;
-  return (
-    <div className="mt-2">
-      <div className="mb-1 flex items-center justify-between font-mono text-[11px]">
-        <span className="text-muted-foreground">
-          v{d.from.version} {d.from.author_id ? "(edited)" : "(agent)"} → v{d.to.version}{" "}
-          {d.to.author_id ? "(edited)" : "(agent)"} ·{" "}
-          <span className="text-primary">+{d.diff.added}</span>{" "}
-          <span className="text-destructive-foreground">−{d.diff.deleted}</span>
-        </span>
-        <Button size="xs" variant="ghost-muted" onClick={onClose}>
-          close
-        </Button>
-      </div>
-      <pre className="bg-background max-h-[40vh] overflow-auto rounded-md border p-2 font-mono text-[11px] leading-5">
-        {d.diff.hunks.length === 0 ? "(no changes)" : null}
-        {d.diff.hunks.map((h, i) => (
-          <div key={i} className={i > 0 ? "border-t pt-1 mt-1" : ""}>
-            {h.lines.map((l, j) => (
-              <div
-                key={j}
-                className={
-                  l.type === "add"
-                    ? "bg-primary/10 text-foreground"
-                    : l.type === "del"
-                      ? "bg-destructive/10 text-muted-foreground line-through"
-                      : "text-muted-foreground"
-                }
-              >
-                {l.type === "add" ? "+ " : l.type === "del" ? "- " : "  "}
-                {l.text}
-              </div>
-            ))}
-          </div>
-        ))}
-      </pre>
-    </div>
-  );
-}
-
-/**
- * The agent's pre-flight questions for one stage run. T3 waits on the whole batch,
- * so every open question is answered together; the run resumes as soon as they land.
- * The same questions are answerable inside the T3 thread (phone included) — whichever
- * happens first wins, and this panel disappears.
- */
-function QuestionsPanel({ run, onAnswered }: { run: Run; onAnswered: () => void }) {
-  const [questions, setQuestions] = useState<Question[] | null>(null);
-  const [draft, setDraft] = useState<Record<string, string | string[]>>({});
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    let live = true;
-    const load = () =>
-      void call<{ questions: Question[] }>(`/api/runs/${run.id}/questions`).then((r) => {
-        if (live && !unauthorized(r)) setQuestions(r.questions);
-      });
-    load();
-    const t = setInterval(load, 4000);
-    return () => {
-      live = false;
-      clearInterval(t);
-    };
-  }, [run.id]);
-
-  const open = (questions ?? []).filter((q) => q.answer === null);
-  if (open.length === 0) return null;
-  const set = (q: Question, v: string) =>
-    setDraft((d) => {
-      if (!q.multi_select) return { ...d, [q.id]: v };
-      const cur = Array.isArray(d[q.id]) ? (d[q.id] as string[]) : [];
-      return { ...d, [q.id]: cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v] };
-    });
-  const chosen = (q: Question, label: string) => {
-    const v = draft[q.id];
-    return Array.isArray(v) ? v.includes(label) : v === label;
-  };
-  const ready = open.every((q) => {
-    const v = draft[q.id];
-    return Array.isArray(v) ? v.length > 0 : typeof v === "string" && v.trim().length > 0;
-  });
-  const submit = async () => {
-    setBusy(true);
-    setErr(null);
-    const r = await call<{ error?: string }>(`/api/runs/${run.id}/answers`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ answers: draft }),
-    });
-    setBusy(false);
-    if (unauthorized(r)) return;
-    if (r.error) {
-      setErr(r.error);
-      return;
-    }
-    setDraft({});
-    onAnswered();
-  };
-
-  return (
-    <div className="border-warning/32 bg-warning-surface mt-2 rounded-md border p-2.5">
-      <p className="text-warning-foreground mb-2 flex items-center gap-1.5 text-xs font-medium">
-        <MessageCircleQuestionIcon className="size-3.5" />
-        The agent needs {open.length === 1 ? "an answer" : `${open.length} answers`} before it
-        starts
-      </p>
-      <div className="space-y-3">
-        {open.map((q) => (
-          <div key={q.id}>
-            {q.header ? (
-              <p className="text-muted-foreground text-[10px] font-semibold tracking-[0.06em] uppercase">
-                {q.header}
-              </p>
-            ) : null}
-            <p className="text-foreground text-[13px]">{q.question}</p>
-            {q.options.length > 0 ? (
-              <div className="mt-1.5 flex flex-wrap gap-1.5">
-                {q.options.map((o) => (
-                  <button
-                    key={o.label}
-                    title={o.description}
-                    onClick={() => set(q, o.label)}
-                    className={`rounded-md border px-2 py-1 text-xs transition-colors ${chosen(q, o.label) ? "border-primary bg-primary/10 text-foreground" : "border-input bg-background text-muted-foreground hover:border-primary/50"}`}
-                  >
-                    {o.label}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-            {q.options.length === 0 || q.allow_custom || q.response_mode === "message" ? (
-              <input
-                value={typeof draft[q.id] === "string" ? (draft[q.id] as string) : ""}
-                onChange={(e) => setDraft((d) => ({ ...d, [q.id]: e.target.value }))}
-                placeholder={q.options.length === 0 ? "Your answer" : "…or type your own"}
-                className="border-input bg-background focus-visible:border-primary mt-1.5 h-8 w-full rounded-md border px-2 text-sm outline-none"
-              />
-            ) : null}
-            {q.multi_select ? (
-              <p className="text-muted-foreground mt-1 text-[10px]">Pick as many as apply.</p>
-            ) : null}
-          </div>
-        ))}
-      </div>
-      <div className="mt-2.5 flex items-center gap-2">
-        <Button size="xs" onClick={() => void submit()} disabled={busy || !ready}>
-          {busy ? <Spinner /> : null}Send answers
-        </Button>
-        <span className="text-muted-foreground text-[10px]">
-          or answer in the thread — same questions, works on your phone
-        </span>
-      </div>
-      {err ? <p className="text-destructive-foreground mt-2 text-xs">{err}</p> : null}
-    </div>
-  );
-}
-
-/**
- * The human gate for one stage run. Four decisions; every one is attributed and
- * decided exactly once server-side (a second click gets a 409, not a second run).
- */
-function GatePanel({
-  gate,
-  artifact,
-  onDecided,
-}: {
-  gate: Gate;
-  artifact: ArtifactMeta | undefined;
-  onDecided: () => void;
-}) {
-  const [mode, setMode] = useState<"idle" | "revise" | "edit">("idle");
-  const [feedback, setFeedback] = useState("");
-  const [draft, setDraft] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  const decide = async (
-    decision: "approve" | "revise" | "reject",
-    extra: Record<string, unknown> = {},
-  ) => {
-    setBusy(true);
-    setErr(null);
-    const r = await call<{ error?: string }>(`/api/gates/${gate.id}/decide`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ decision, ...extra }),
-    });
-    setBusy(false);
-    if (unauthorized(r)) return;
-    if (r.error) {
-      setErr(r.error);
-      return;
-    }
-    setMode("idle");
-    onDecided();
-  };
-  const startEdit = async () => {
-    if (!artifact) return;
-    const res = await fetch(`${API}/api/artifacts/${artifact.id}?raw=1`, {
-      credentials: "include",
-    });
-    setDraft(await res.text());
-    setMode("edit");
-  };
-
-  return (
-    <div className="border-warning/32 bg-warning-surface mt-2 rounded-md border p-2.5">
-      <p className="text-warning-foreground mb-2 text-xs font-medium">
-        Your decision: {gate.stage}
-        {gate.attempt > 1 ? ` (attempt ${gate.attempt})` : ""}
-        {!artifact ? " — the agent produced no output" : ""}
-      </p>
-      {mode === "idle" ? (
-        <div className="flex flex-wrap gap-1.5">
-          <Button size="xs" onClick={() => void decide("approve")} disabled={busy || !artifact}>
-            <CheckIcon /> Approve
-          </Button>
-          <Button
-            size="xs"
-            variant="outline"
-            onClick={() => void startEdit()}
-            disabled={busy || !artifact}
-          >
-            <PencilIcon /> Edit &amp; approve
-          </Button>
-          <Button size="xs" variant="outline" onClick={() => setMode("revise")} disabled={busy}>
-            <Undo2Icon /> Revise
-          </Button>
-          <Button
-            size="xs"
-            variant="destructive-outline"
-            onClick={() => {
-              if (window.confirm("Reject this task? Its branch and worktree will be removed."))
-                void decide("reject");
-            }}
-            disabled={busy}
-          >
-            <XIcon /> Reject
-          </Button>
-        </div>
-      ) : null}
-      {mode === "revise" ? (
-        <div className="space-y-2">
-          <textarea
-            autoFocus
-            value={feedback}
-            onChange={(e) => setFeedback(e.target.value)}
-            rows={3}
-            placeholder="What's wrong? The agent reruns this stage with your feedback in front of it."
-            className="border-input bg-background focus-visible:border-primary w-full rounded-md border px-3 py-2 text-sm outline-none"
-          />
-          <div className="flex gap-1.5">
-            <Button
-              size="xs"
-              onClick={() => void decide("revise", { feedback })}
-              disabled={busy || !feedback.trim()}
-            >
-              Send back
-            </Button>
-            <Button size="xs" variant="ghost-muted" onClick={() => setMode("idle")}>
-              cancel
-            </Button>
-          </div>
-        </div>
-      ) : null}
-      {mode === "edit" && draft !== null ? (
-        <div className="space-y-2">
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            rows={14}
-            className="border-input bg-background focus-visible:border-primary w-full rounded-md border px-3 py-2 font-mono text-[12px] outline-none"
-          />
-          <div className="flex gap-1.5">
-            <Button
-              size="xs"
-              onClick={() => void decide("approve", { content: draft })}
-              disabled={busy || !draft.trim()}
-            >
-              <CheckIcon /> Save as v{(artifact?.version ?? 0) + 1} &amp; approve
-            </Button>
-            <Button size="xs" variant="ghost-muted" onClick={() => setMode("idle")}>
-              cancel
-            </Button>
-          </div>
-        </div>
-      ) : null}
-      {err ? <p className="text-destructive-foreground mt-2 text-xs">{err}</p> : null}
-    </div>
-  );
-}
-
-/** Your own account: change the password you were handed, or sign out. */
 function AccountMenu({ me, onSignedOut }: { me: User; onSignedOut: () => void }) {
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState("");
@@ -661,49 +117,44 @@ function AccountMenu({ me, onSignedOut }: { me: User; onSignedOut: () => void })
     setBusy(true);
     setErr(null);
     setMsg(null);
-    const r = await call<{ error?: string }>("/api/auth/password", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ current_password: current, new_password: next }),
+    const r = await post<{ error?: string }>("/api/auth/password", {
+      current_password: current,
+      new_password: next,
     });
     setBusy(false);
     if (unauthorized(r)) return;
-    if (r.error) {
-      setErr(r.error);
-      return;
-    }
+    if (r.error) return setErr(r.error);
     setCurrent("");
     setNext("");
-    setMsg("Password changed. Your other devices were signed out.");
+    setMsg("Changed. Your other devices were signed out.");
   };
-  const signOut = async () => {
-    await call("/api/auth/logout", { method: "POST" });
-    onSignedOut();
-  };
-  const cls =
-    "border-input bg-background focus-visible:border-primary h-8 w-full rounded-md border px-2 text-sm outline-none";
+
   return (
-    <div className="relative ml-auto">
+    <div className="relative">
       <Button size="xs" variant="ghost-muted" onClick={() => setOpen((v) => !v)}>
-        {me.name} · {me.role}
+        <span className="grid size-4 place-items-center rounded-full bg-secondary text-[9px] font-medium text-secondary-foreground">
+          {initials(me.name)}
+        </span>
+        {me.name}
       </Button>
       {open ? (
-        <div className="bg-popover absolute right-0 z-50 mt-1 w-64 rounded-md border p-2.5 shadow-md">
-          <p className="text-muted-foreground mb-2 font-mono text-[11px]">{me.email}</p>
+        <div className="absolute right-0 z-50 mt-1 w-68 rounded-xl border border-border/60 bg-popover p-3 shadow-lg">
+          <p className="font-mono text-[11px] text-muted-foreground">{me.email}</p>
+          <p className="mt-0.5 mb-2 text-[11px] text-muted-foreground">Signed in as {me.role}.</p>
           <div className="space-y-1.5">
-            <input
+            <Input
+              size="sm"
               type="password"
-              value={current}
-              onChange={(e) => setCurrent(e.target.value)}
               placeholder="Current password"
-              className={cls}
+              value={current}
+              onChange={(e) => setCurrent((e.target as HTMLInputElement).value)}
             />
-            <input
+            <Input
+              size="sm"
               type="password"
-              value={next}
-              onChange={(e) => setNext(e.target.value)}
               placeholder="New password (8+ characters)"
-              className={cls}
+              value={next}
+              onChange={(e) => setNext((e.target as HTMLInputElement).value)}
             />
             <Button
               size="xs"
@@ -714,13 +165,13 @@ function AccountMenu({ me, onSignedOut }: { me: User; onSignedOut: () => void })
               {busy ? <Spinner /> : null}Change password
             </Button>
           </div>
-          {msg ? <p className="text-primary mt-2 text-xs">{msg}</p> : null}
-          {err ? <p className="text-destructive-foreground mt-2 text-xs">{err}</p> : null}
+          {msg ? <p className="mt-2 text-[11px] text-success-foreground">{msg}</p> : null}
+          {err ? <p className="mt-2 text-[11px] text-destructive-foreground">{err}</p> : null}
           <Button
             size="xs"
             variant="ghost-muted"
             className="mt-2 w-full"
-            onClick={() => void signOut()}
+            onClick={() => void post("/api/auth/logout").then(onSignedOut)}
           >
             Sign out
           </Button>
@@ -730,31 +181,105 @@ function AccountMenu({ me, onSignedOut }: { me: User; onSignedOut: () => void })
   );
 }
 
+function TaskCard({
+  task,
+  runs,
+  users,
+  selected,
+  waiting,
+  onSelect,
+  now,
+}: {
+  task: Task;
+  runs: Run[];
+  users: User[];
+  selected: boolean;
+  waiting: Run | undefined;
+  onSelect: () => void;
+  now: number;
+}) {
+  const assignee = users.find((u) => u.id === task.assignee_id);
+  const current = runs.at(-1);
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        "group relative w-full rounded-xl border bg-card/40 px-3 py-2.5 text-left transition-colors",
+        selected
+          ? "border-primary/60 bg-card/70"
+          : "border-border/60 hover:border-border hover:bg-card/60",
+        waiting && "border-warning/40",
+      )}
+    >
+      {waiting ? (
+        <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-warning" />
+      ) : null}
+      <div className="flex items-start gap-2">
+        <span className="min-w-0 flex-1 text-[13px] leading-snug font-medium text-foreground">
+          {task.title}
+        </span>
+        <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+          {task.ticket.replace("FND-", "")}
+        </span>
+      </div>
+      <Spine className="mt-2" stages={task.pipeline_snapshot} runs={runs} taskState={task.state} />
+      <div className="mt-2 flex items-center gap-1.5">
+        {waiting ? (
+          <StateBadge state={waiting.state} />
+        ) : current && task.state === "open" ? (
+          <StateBadge state={current.state} />
+        ) : (
+          <Badge variant="outline" size="sm" className="font-mono">
+            {task.pipeline}
+          </Badge>
+        )}
+        {assignee ? (
+          <span
+            title={assignee.name}
+            className="ml-auto grid size-4 shrink-0 place-items-center rounded-full bg-secondary text-[9px] font-medium text-secondary-foreground"
+          >
+            {initials(assignee.name)}
+          </span>
+        ) : (
+          <span className="ml-auto text-[10px] text-muted-foreground/70">
+            {ago(task.created_at, now)}
+          </span>
+        )}
+      </div>
+    </button>
+  );
+}
+
 function PipelinePage() {
   const [needsAuth, setNeedsAuth] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [tab, setTab] = useState<Tab>("board");
   const [me, setMe] = useState<User | null>(null);
   const [pipelines, setPipelines] = useState<PipelineDef[]>([]);
+  const [skills, setSkills] = useState<string[]>([]);
+  const [models, setModels] = useState<string[]>([]);
   const [repos, setRepos] = useState<Repo[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [details, setDetails] = useState<Record<string, Detail>>({});
   const [selected, setSelected] = useState<string | null>(null);
-  const [detail, setDetail] = useState<Detail | null>(null);
-  const [viewArtifact, setViewArtifact] = useState<{ meta: ArtifactMeta; content: string } | null>(
-    null,
-  );
+  const [composing, setComposing] = useState(false);
   const [envId, setEnvId] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [viewDiff, setViewDiff] = useState<{ fromId: string; toId: string } | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
   const selRef = useRef<string | null>(null);
   selRef.current = selected;
-  const versionsFor = (stage: string) =>
-    (detail?.artifacts ?? [])
-      .filter((a) => a.stage === stage)
-      .sort((a, b) => a.version - b.version);
 
-  // T3's own environment id, for thread deep links (/$environmentId/$threadId).
+  // A clock, so elapsed times move without refetching anything.
   useEffect(() => {
-    fetch("/.well-known/t3/environment", { credentials: "include" })
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // T3's environment id, for deep links into the agent thread of a stage.
+  useEffect(() => {
+    void fetch("/.well-known/t3/environment", { credentials: "include" })
       .then((r) => r.json())
       .then((d: { environmentId?: string; id?: string }) =>
         setEnvId(d.environmentId ?? d.id ?? null),
@@ -766,69 +291,128 @@ function PipelinePage() {
     const meRes = await call<{ user: User }>("/api/auth/me");
     if (unauthorized(meRes)) {
       setNeedsAuth(true);
+      setLoaded(true);
       return;
     }
     setNeedsAuth(false);
     setMe(meRes.user);
-    const [p, r, u, t] = await Promise.all([
-      call<{ pipelines: PipelineDef[] }>("/api/pipelines"),
+    const [p, r, u, t, m] = await Promise.all([
+      call<{ pipelines: PipelineDef[]; skills: string[] }>("/api/pipelines"),
       call<{ repos: Repo[] }>("/api/repos"),
       call<{ users: User[] }>("/api/users"),
       call<{ tasks: Task[] }>("/api/tasks"),
+      call<{ models: string[] }>("/api/models"),
     ]);
-    if (!unauthorized(p)) setPipelines(p.pipelines);
+    if (!unauthorized(p)) {
+      setPipelines(p.pipelines);
+      setSkills(p.skills ?? []);
+    }
     if (!unauthorized(r)) setRepos(r.repos);
     if (!unauthorized(u)) setUsers(u.users);
-    if (!unauthorized(t)) setTasks(t.tasks);
-    const id = selRef.current;
-    if (id) {
-      const d = await call<Detail>(`/api/tasks/${id}/runs`);
-      if (!unauthorized(d)) setDetail(d);
+    if (!unauthorized(m)) setModels(m.models);
+    if (!unauthorized(t)) {
+      setTasks(t.tasks);
+      // Runs for every open task: the board's state badges and spines come from
+      // these, and there are only ever a handful of live tasks.
+      const live = t.tasks.filter((x) => x.state === "open").slice(0, 40);
+      const sel = selRef.current;
+      const wanted = new Set(live.map((x) => x.id));
+      if (sel) wanted.add(sel);
+      const fetched = await Promise.all(
+        [...wanted].map(async (id) => [id, await call<Detail>(`/api/tasks/${id}/runs`)] as const),
+      );
+      setDetails(
+        Object.fromEntries(
+          fetched.filter(([, d]) => !unauthorized(d)).map(([id, d]) => [id, d as Detail]),
+        ),
+      );
     }
+    setLoaded(true);
   }, []);
 
   useEffect(() => {
     void refresh();
-    const t = setInterval(() => {
-      if (!busy) void refresh();
-    }, 3000);
+    const t = setInterval(() => void refresh(), 4000);
     return () => clearInterval(t);
-  }, [refresh, busy]);
+  }, [refresh]);
 
-  const act = async (path: string) => {
-    setBusy(true);
-    const r = await call<{ error?: string }>(path, { method: "POST" });
-    setBusy(false);
-    if (!unauthorized(r) && r.error) window.alert(r.error);
-    void refresh();
-  };
-  const openArtifact = async (meta: ArtifactMeta) => {
-    const res = await fetch(`${API}/api/artifacts/${meta.id}?raw=1`, { credentials: "include" });
-    setViewArtifact({ meta, content: await res.text() });
-  };
+  const runsOf = useCallback((id: string) => details[id]?.runs ?? [], [details]);
+  const waitingRun = useCallback(
+    (id: string) => runsOf(id).find((r) => NEEDS_HUMAN.has(r.state)),
+    [runsOf],
+  );
 
-  if (needsAuth) return <SignIn onDone={() => void refresh()} />;
+  const waiting = useMemo(
+    () => tasks.filter((t) => t.state === "open" && waitingRun(t.id)),
+    [tasks, waitingRun],
+  );
+  const mine = useMemo(() => waiting.filter((t) => t.assignee_id === me?.id), [waiting, me]);
+
+  const stageNames = useMemo(() => {
+    const longest = pipelines.reduce<PipelineDef | null>(
+      (acc, p) => (!acc || p.stages.length > acc.stages.length ? p : acc),
+      null,
+    );
+    return longest?.stages.map((s) => s.name) ?? ["one-pager", "mockup", "prd", "build"];
+  }, [pipelines]);
+
+  const columns = useMemo(() => {
+    const open = tasks.filter((t) => t.state === "open");
+    return [
+      ...stageNames.map((name) => ({ key: name, tasks: open.filter((t) => t.stage === name) })),
+      { key: "shipped", tasks: tasks.filter((t) => t.state === "done") },
+    ];
+  }, [tasks, stageNames]);
+
   const task = tasks.find((t) => t.id === selected) ?? null;
-  const currentRun = detail?.runs.at(-1);
-  const stageNames = pipelines.find((p) => p.name === "feature")?.stages.map((s) => s.name) ?? [
-    "one-pager",
-    "mockup",
-    "prd",
-    "build",
-  ];
-  const columns = [
-    ...stageNames.map((name) => ({
-      key: name,
-      tasks: tasks.filter((t) => t.state === "open" && t.stage === name),
-    })),
-    { key: "shipped", tasks: tasks.filter((t) => t.state === "done") },
-  ];
+
+  if (needsAuth) {
+    return (
+      <SidebarInset className="h-dvh min-h-0 overflow-hidden bg-background text-foreground">
+        <SignIn onDone={() => void refresh()} />
+      </SidebarInset>
+    );
+  }
 
   return (
-    <div className="flex h-full min-h-0 w-full min-w-0 overflow-hidden">
-      <div className="min-w-0 flex-1 overflow-auto p-4">
-        <div className="mb-3 flex items-center gap-3">
-          <h1 className="text-foreground text-sm font-semibold">Pipeline</h1>
+    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
+      <WorkspacePageHeader electron={isElectron}>
+        <WorkspaceBreadcrumb ariaLabel="Foundry">
+          <WorkspaceBreadcrumbItem>Foundry</WorkspaceBreadcrumbItem>
+          <WorkspaceBreadcrumbSeparator />
+          <WorkspaceBreadcrumbItem>
+            {tab === "board" ? "Board" : tab === "pipelines" ? "Pipelines" : "How it works"}
+          </WorkspaceBreadcrumbItem>
+        </WorkspaceBreadcrumb>
+
+        <div className="ml-auto flex items-center gap-1.5">
+          {waiting.length > 0 ? (
+            <Button
+              size="xs"
+              variant={mine.length > 0 ? "warning-outline" : "ghost-muted"}
+              onClick={() => {
+                setTab("board");
+                setSelected((mine[0] ?? waiting[0])!.id);
+              }}
+            >
+              <BellIcon />
+              {mine.length > 0
+                ? `${mine.length} waiting on you`
+                : `${waiting.length} waiting on someone`}
+            </Button>
+          ) : null}
+          <div className="flex items-center rounded-lg border border-border/60 p-0.5">
+            {(["board", "pipelines", "docs"] as const).map((t) => (
+              <Button
+                key={t}
+                size="xs"
+                variant={tab === t ? "secondary" : "ghost-muted"}
+                onClick={() => setTab(t)}
+              >
+                {t === "board" ? "Board" : t === "pipelines" ? "Pipelines" : "How it works"}
+              </Button>
+            ))}
+          </div>
           {me ? (
             <AccountMenu
               me={me}
@@ -839,242 +423,128 @@ function PipelinePage() {
             />
           ) : null}
         </div>
-        <NewTask
-          pipelines={pipelines}
-          repos={repos}
-          users={users}
-          onCreated={(id) => {
-            setSelected(id);
-            void refresh();
-          }}
-        />
-        <div className="flex gap-3 overflow-x-auto">
-          {columns.map((col) => (
-            <div key={col.key} className="min-w-[200px] flex-1">
-              <div className="mb-2 flex items-baseline gap-2 px-1">
-                <span className="text-muted-foreground text-[10px] font-semibold tracking-[0.08em] uppercase">
-                  {col.key}
-                </span>
-                <span className="text-muted-foreground/60 font-mono text-[10px]">
-                  {col.tasks.length || ""}
-                </span>
-              </div>
-              {col.tasks.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => {
-                    setSelected(t.id);
-                    setViewArtifact(null);
-                    setViewDiff(null);
-                  }}
-                  className={`bg-popover mb-2 w-full rounded-md border p-3 text-left transition-colors ${selected === t.id ? "border-primary" : "border-border hover:border-input"}`}
-                >
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="text-foreground line-clamp-2 text-[13px] font-medium">
-                      {t.title}
-                    </span>
-                    <span className="text-muted-foreground shrink-0 font-mono text-[10px]">
-                      {t.ticket}
-                    </span>
-                  </div>
-                  <Rail task={t} currentRun={selected === t.id ? currentRun : undefined} />
-                  <div className="mt-2 flex items-center gap-2">
-                    <span className="text-muted-foreground font-mono text-[10px]">
-                      {t.pipeline}
-                    </span>
-                    {t.assignee_id ? (
-                      <span className="text-muted-foreground font-mono text-[10px]">
-                        · {users.find((u) => u.id === t.assignee_id)?.name ?? "?"}
-                      </span>
-                    ) : null}
-                  </div>
-                </button>
-              ))}
-            </div>
-          ))}
-        </div>
-      </div>
+      </WorkspacePageHeader>
 
-      <aside className="bg-popover w-[460px] max-w-[50%] shrink-0 overflow-auto border-l p-4">
-        {!task ? (
-          <p className="text-muted-foreground py-16 text-center text-sm">Select a task</p>
-        ) : (
-          <>
-            <div className="flex items-baseline justify-between gap-2">
-              <h2 className="text-foreground text-[15px] font-semibold">{task.title}</h2>
-              <span className="text-muted-foreground font-mono text-[11px]">{task.ticket}</span>
+      {tab === "board" ? (
+        <div className="flex min-h-0 flex-1">
+          <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+            <div className="flex items-center gap-2 px-5 pt-1 pb-3">
+              <Button size="sm" onClick={() => setComposing((v) => !v)}>
+                <PlusIcon /> New task
+              </Button>
+              <span className="text-[11px] text-muted-foreground">
+                {tasks.filter((t) => t.state === "open").length} open ·{" "}
+                {tasks.filter((t) => t.state === "done").length} shipped
+              </span>
             </div>
-            <p className="text-muted-foreground mt-1 font-mono text-[11px]">
-              {task.pipeline} · {repos.find((r) => r.id === task.repo_id)?.name} ·{" "}
-              <code>{task.branch}</code>
-            </p>
-            {task.description ? (
-              <p className="text-muted-foreground mt-2 text-xs whitespace-pre-wrap">
-                {task.description}
-              </p>
-            ) : null}
 
-            {!detail || detail.runs.length === 0 ? (
-              task.state === "open" ? (
-                <div className="mt-4">
-                  <Button onClick={() => void act(`/api/tasks/${task.id}/start`)} disabled={busy}>
-                    <PlayIcon /> Start pipeline
-                  </Button>
-                  <p className="text-muted-foreground mt-2 text-xs">
-                    Runs the first stage as a T3 thread on <code>{task.branch}</code>.
+            <div className="min-h-0 flex-1 overflow-auto px-5 pb-6">
+              {composing ? (
+                <div className="mb-4">
+                  <NewTask
+                    pipelines={pipelines}
+                    repos={repos}
+                    users={users}
+                    skills={skills}
+                    models={models}
+                    me={me}
+                    onCancel={() => setComposing(false)}
+                    onCreated={(id) => {
+                      setComposing(false);
+                      setSelected(id);
+                      void refresh();
+                    }}
+                  />
+                </div>
+              ) : null}
+
+              {!loaded ? (
+                <p className="py-16 text-center text-sm text-muted-foreground">Loading…</p>
+              ) : tasks.length === 0 ? (
+                <div className="mx-auto max-w-md py-16 text-center">
+                  <h2 className="text-sm font-medium text-foreground">
+                    Nothing in the pipeline yet
+                  </h2>
+                  <p className="mt-1 text-[13px] leading-[1.5] text-muted-foreground">
+                    Create a task and an agent will write the one-pager. It will ask you anything it
+                    needs before it starts.
                   </p>
                 </div>
-              ) : null
-            ) : (
-              <div className="mt-4 space-y-2">
-                {detail.runs.map((r) => {
-                  const gate = detail.gates.find((g) => g.stage_run_id === r.id);
-                  const art = detail.artifacts.find((a) => a.id === r.artifact_id);
-                  return (
-                    <div key={r.id} className="rounded-md border p-2.5">
-                      <div className="flex items-center gap-2">
-                        {r.state === "done" ? (
-                          <CheckIcon className="text-primary size-3.5" />
-                        ) : busyState(r.state) ? (
-                          <CircleDotIcon className="text-primary size-3.5" />
-                        ) : null}
-                        <span className="text-foreground text-sm font-medium">{r.stage}</span>
-                        {r.attempt > 1 ? (
-                          <span className="text-muted-foreground font-mono text-[10px]">
-                            v{r.attempt}
-                          </span>
-                        ) : null}
-                        <span className="ml-auto" />
-                        <StatePill state={r.state} />
+              ) : (
+                <div className="flex gap-3">
+                  {columns.map((col) => (
+                    <div key={col.key} className="min-w-[190px] flex-1 space-y-2">
+                      <div className="flex items-baseline gap-1.5 px-0.5">
+                        <span className="text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+                          {col.key}
+                        </span>
+                        <span className="font-mono text-[10px] text-muted-foreground/60">
+                          {col.tasks.length || ""}
+                        </span>
                       </div>
-                      <div className="text-muted-foreground mt-1 flex flex-wrap gap-x-3 font-mono text-[10px]">
-                        {r.head_sha ? <span>commit {r.head_sha.slice(0, 7)}</span> : null}
-                        {r.active_ms ? (
-                          <span>{Math.round(Number(r.active_ms) / 1000)}s active</span>
-                        ) : null}
-                        {r.park_reason ? (
-                          <span className="text-destructive-foreground">{r.park_reason}</span>
-                        ) : null}
-                      </div>
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {r.t3_thread_id ? (
-                          envId ? (
-                            <Link
-                              to="/$environmentId/$threadId"
-                              params={{ environmentId: envId, threadId: r.t3_thread_id }}
-                              className="text-primary inline-flex items-center gap-1 text-xs hover:underline"
-                            >
-                              <ExternalLinkIcon className="size-3" /> Open thread
-                            </Link>
-                          ) : (
-                            <span className="text-muted-foreground text-xs">
-                              thread {r.t3_thread_id.slice(0, 8)}
-                            </span>
-                          )
-                        ) : null}
-                        {art ? (
-                          <Button
-                            size="xs"
-                            variant="outline"
-                            onClick={() => void openArtifact(art)}
-                          >
-                            View {art.kind === "html" ? "mockup" : art.stage} v{art.version}
-                          </Button>
-                        ) : null}
-                        {r.state === "parked" ? (
-                          <Button
-                            size="xs"
-                            variant="outline"
-                            onClick={() => void act(`/api/runs/${r.id}/retry`)}
-                            disabled={busy}
-                          >
-                            <RotateCwIcon /> Retry
-                          </Button>
-                        ) : null}
-                        {busyState(r.state) || r.state === "queued" ? (
-                          <Button
-                            size="xs"
-                            variant="ghost-muted"
-                            onClick={() => {
-                              if (window.confirm("Cancel this run?"))
-                                void act(`/api/runs/${r.id}/cancel`);
-                            }}
-                            disabled={busy}
-                          >
-                            <XIcon /> Cancel
-                          </Button>
-                        ) : null}
-                        {versionsFor(r.stage).length > 1 && art ? (
-                          <Button
-                            size="xs"
-                            variant="ghost-muted"
-                            onClick={() => {
-                              const vs = versionsFor(r.stage);
-                              const prev = vs.find((v) => v.version === art.version - 1) ?? vs[0]!;
-                              setViewDiff(
-                                prev.id === art.id ? null : { fromId: prev.id, toId: art.id },
-                              );
-                            }}
-                          >
-                            Diff v{art.version - 1}→v{art.version}
-                          </Button>
-                        ) : null}
-                      </div>
-                      {r.state === "awaiting_answers" ? (
-                        <QuestionsPanel run={r} onAnswered={() => void refresh()} />
-                      ) : null}
-                      {gate && !gate.decided_at ? (
-                        <GatePanel gate={gate} artifact={art} onDecided={() => void refresh()} />
-                      ) : null}
-                      {r.park_reason && r.park_detail ? (
-                        <pre className="text-muted-foreground bg-background mt-2 max-h-40 overflow-auto rounded border p-2 font-mono text-[10px] whitespace-pre-wrap">
-                          {JSON.stringify(r.park_detail, null, 1).slice(0, 2000)}
-                        </pre>
-                      ) : null}
+                      {col.tasks.map((t) => (
+                        <TaskCard
+                          key={t.id}
+                          task={t}
+                          runs={runsOf(t.id)}
+                          users={users}
+                          selected={selected === t.id}
+                          waiting={waitingRun(t.id)}
+                          onSelect={() => setSelected(t.id)}
+                          now={now}
+                        />
+                      ))}
                     </div>
-                  );
-                })}
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <aside className="hidden w-[440px] shrink-0 border-l border-border/50 bg-card/20 lg:block xl:w-[520px]">
+            {task ? (
+              <TaskDetail
+                task={task}
+                detail={details[task.id] ?? null}
+                repo={repos.find((r) => r.id === task.repo_id)}
+                users={users}
+                envId={envId}
+                now={now}
+                onChanged={() => void refresh()}
+              />
+            ) : (
+              <div className="flex h-full items-center justify-center px-6 text-center">
+                <p className="max-w-56 text-[13px] leading-[1.5] text-muted-foreground">
+                  Pick a task to see its stages, read what the agents wrote, and answer anything
+                  they need.
+                </p>
               </div>
             )}
-
-            {viewDiff ? (
-              <DiffView
-                fromId={viewDiff.fromId}
-                toId={viewDiff.toId}
-                onClose={() => setViewDiff(null)}
+          </aside>
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-auto">
+          <WorkspacePageContainer width={tab === "docs" ? "readable" : "wide"}>
+            {tab === "pipelines" ? (
+              <PipelineSettings
+                pipelines={pipelines}
+                skills={skills}
+                models={models}
+                users={users}
+                canEdit={me?.role === "admin"}
+                onSaved={() => void refresh()}
+                now={now}
               />
-            ) : null}
-
-            {viewArtifact ? (
-              <div className="mt-4">
-                <div className="mb-1 flex items-center justify-between">
-                  <span className="text-muted-foreground font-mono text-[11px]">
-                    {viewArtifact.meta.stage} · v{viewArtifact.meta.version} ·{" "}
-                    {viewArtifact.meta.author_id ? "edited" : "agent"}
-                  </span>
-                  <Button size="xs" variant="ghost-muted" onClick={() => setViewArtifact(null)}>
-                    close
-                  </Button>
-                </div>
-                {viewArtifact.meta.kind === "html" ? (
-                  <iframe
-                    title="mockup"
-                    sandbox="allow-scripts"
-                    srcDoc={viewArtifact.content}
-                    className="h-[46vh] w-full rounded-md border bg-white"
-                  />
-                ) : (
-                  <div className="bg-background max-h-[46vh] overflow-auto rounded-md border p-3">
-                    {markdown(viewArtifact.content)}
-                  </div>
-                )}
-              </div>
-            ) : null}
-          </>
-        )}
-      </aside>
-    </div>
+            ) : (
+              <Docs />
+            )}
+          </WorkspacePageContainer>
+        </div>
+      )}
+    </SidebarInset>
   );
 }
 
 export const Route = createFileRoute("/_chat/pipeline")({ component: PipelinePage });
+
+export { toneOf };
