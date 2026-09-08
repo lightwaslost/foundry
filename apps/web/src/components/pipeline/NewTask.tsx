@@ -44,6 +44,18 @@ function resolveInputs(stages: StageDef[], skipped: string[]): Map<string, strin
 }
 
 /**
+ * The pipeline to start from: the one with the most stages, because the stage list
+ * is now something you subtract from and a shorter pipeline would simply hide the
+ * stages it lacks. Used for the initial value AND the fallback when the pipeline
+ * list arrives late — if those two disagree, the effect silently wins.
+ */
+function fullest(pipelines: PipelineDef[]): string {
+  let best: PipelineDef | undefined;
+  for (const p of pipelines) if (!best || p.stages.length > best.stages.length) best = p;
+  return best?.name ?? "feature";
+}
+
+/**
  * Starting work. Two panes: on the left what you want, on the right which
  * stages will do it. The stage list is deliberately not folded away — picking
  * "just a mockup", or "I have the spec, only build it", is the point of the
@@ -76,7 +88,7 @@ export function NewTask({
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [pipelineName, setPipelineName] = useState(pipelines[0]?.name ?? "feature");
+  const [pipelineName, setPipelineName] = useState(() => fullest(pipelines));
   const [repo, setRepo] = useState("");
   // Repositories beyond the primary that this task is allowed to change.
   const [extras, setExtras] = useState<string[]>([]);
@@ -84,6 +96,9 @@ export function NewTask({
   const [overrides, setOverrides] = useState<Record<string, StageOverride>>({});
   const [skipped, setSkipped] = useState<string[]>([]);
   const [openStage, setOpenStage] = useState<string | null>(null);
+  // Picking a pipeline is now the rare case: the stages are the decision, and the
+  // pipeline is only which catalogue they came from.
+  const [choosing, setChoosing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -94,8 +109,8 @@ export function NewTask({
     if (!repo && cloned[0]) setRepo(cloned[0].id);
   }, [cloned, repo]);
   useEffect(() => {
-    if (!pipelines.some((p) => p.name === pipelineName) && pipelines[0])
-      setPipelineName(pipelines[0].name);
+    if (!pipelines.some((p) => p.name === pipelineName) && pipelines.length)
+      setPipelineName(fullest(pipelines));
   }, [pipelines, pipelineName]);
 
   // Whichever repository leads is never also an "also change" — picking it there
@@ -303,19 +318,34 @@ export function NewTask({
         {/* Right — the pipeline. */}
         <div className="space-y-2 sm:border-l sm:border-border/50 sm:pl-4">
           <div className="space-y-1.5">
-            <Label>Pipeline</Label>
-            <Select value={pipelineName} onValueChange={(v) => setPipelineName(String(v))}>
-              <SelectTrigger size="sm" aria-label="Pipeline">
-                <SelectValue>{pipelineName}</SelectValue>
-              </SelectTrigger>
-              <SelectPopup alignItemWithTrigger={false}>
-                {pipelines.map((p) => (
-                  <SelectItem key={p.name} value={p.name}>
-                    {p.name} · {p.stages.length} stage{p.stages.length === 1 ? "" : "s"}
-                  </SelectItem>
-                ))}
-              </SelectPopup>
-            </Select>
+            {pipelines.length > 1 && !choosing ? (
+              <div className="flex items-center gap-2">
+                <Label>Stages</Label>
+                <button
+                  type="button"
+                  onClick={() => setChoosing(true)}
+                  className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                >
+                  from {pipelineName} — use another
+                </button>
+              </div>
+            ) : (
+              <>
+                <Label>Pipeline</Label>
+                <Select value={pipelineName} onValueChange={(v) => setPipelineName(String(v))}>
+                  <SelectTrigger size="sm" aria-label="Pipeline">
+                    <SelectValue>{pipelineName}</SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup alignItemWithTrigger={false}>
+                    {pipelines.map((p) => (
+                      <SelectItem key={p.name} value={p.name}>
+                        {p.name} · {p.stages.length} stage{p.stages.length === 1 ? "" : "s"}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+              </>
+            )}
           </div>
 
           <div className="overflow-hidden rounded-lg border border-border/60">
