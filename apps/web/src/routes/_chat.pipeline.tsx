@@ -438,7 +438,7 @@ function PipelinePage() {
               </span>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-auto px-5 pb-6">
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
               {composing ? (
                 <div className="mb-4">
                   <NewTask
@@ -471,9 +471,9 @@ function PipelinePage() {
                   </p>
                 </div>
               ) : (
-                <div className="flex gap-2.5">
+                <div className="-mx-1 flex gap-2.5 overflow-x-auto px-1 pb-2">
                   {columns.map((col) => (
-                    <div key={col.key} className="min-w-[142px] flex-1 space-y-2">
+                    <div key={col.key} className="w-[168px] shrink-0 space-y-2 xl:w-[196px]">
                       <div className="flex items-baseline gap-1.5 px-0.5">
                         <span className="text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
                           {col.key}
@@ -501,7 +501,7 @@ function PipelinePage() {
             </div>
           </div>
 
-          <aside className="hidden w-[440px] shrink-0 border-l border-border/50 bg-card/20 lg:block xl:w-[520px]">
+          <aside className="hidden w-[380px] shrink-0 border-l border-border/50 bg-card/20 lg:block xl:w-[440px] 2xl:w-[520px]">
             {task ? (
               <TaskDetail
                 task={task}
