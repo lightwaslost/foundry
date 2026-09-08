@@ -38,6 +38,7 @@ export function NewTask({
   me,
   onCreated,
   onCancel,
+  onDirtyChange,
 }: {
   pipelines: PipelineDef[];
   repos: Repo[];
@@ -47,6 +48,8 @@ export function NewTask({
   me: User | null;
   onCreated: (id: string) => void;
   onCancel: () => void;
+  /** So the dialog's own dismissals can ask before throwing away typed work. */
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -99,6 +102,16 @@ export function NewTask({
   const tweaked = Object.entries(overrides)
     .filter(([, v]) => Object.keys(v).length > 0)
     .map(([k]) => k);
+  // Losing a half-written ticket to a stray Escape is a small betrayal people
+  // remember, so leaving with something typed asks first — here and in the dialog.
+  const dirty = title.trim().length > 0 || description.trim().length > 0 || tweaked.length > 0;
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+  const close = () => {
+    if (dirty && !window.confirm("Discard this task? What you have typed will be lost.")) return;
+    onCancel();
+  };
 
   return (
     <section className="rounded-xl border border-border/60 bg-card/40">
@@ -267,7 +280,7 @@ export function NewTask({
         <Button size="sm" onClick={() => void submit()} disabled={busy || !title.trim() || !repo}>
           {busy ? <Spinner /> : null}Create task
         </Button>
-        <Button size="sm" variant="ghost-muted" onClick={onCancel}>
+        <Button size="sm" variant="ghost-muted" onClick={close}>
           Cancel
         </Button>
         <span className="ml-auto text-[11px] text-muted-foreground">

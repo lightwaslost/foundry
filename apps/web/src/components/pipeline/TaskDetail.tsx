@@ -4,7 +4,9 @@ import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Spinner } from "~/components/ui/spinner";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import {
+  ChevronDownIcon,
   ExternalLinkIcon,
   FileTextIcon,
   GitBranchIcon,
@@ -48,6 +50,7 @@ export function TaskDetail({
   users,
   envId,
   onChanged,
+  onMove,
   now,
 }: {
   task: Task;
@@ -56,6 +59,7 @@ export function TaskDetail({
   users: User[];
   envId: string | null;
   onChanged: () => void;
+  onMove: (stage: string) => void;
   now: number;
 }) {
   const [busy, setBusy] = useState(false);
@@ -99,6 +103,23 @@ export function TaskDetail({
           <Badge variant="outline" size="sm">
             {task.pipeline}
           </Badge>
+          <Menu>
+            <MenuTrigger
+              aria-label="Move this task to another stage"
+              className="inline-flex h-5 items-center gap-1 rounded-md px-1.5 font-mono text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              {task.state === "done" ? "shipped" : (task.stage ?? "—")}
+              <ChevronDownIcon aria-hidden className="size-3 shrink-0 opacity-70" />
+            </MenuTrigger>
+            <MenuPopup align="start" side="bottom" className="min-w-44">
+              {task.pipeline_snapshot.map((st) => (
+                <MenuItem key={st.name} onClick={() => onMove(st.name)}>
+                  {st.name}
+                </MenuItem>
+              ))}
+              <MenuItem onClick={() => onMove("shipped")}>shipped — close this task</MenuItem>
+            </MenuPopup>
+          </Menu>
           {repo ? <span>{repo.name}</span> : null}
           <span className="inline-flex items-center gap-1">
             <GitBranchIcon className="size-3" />

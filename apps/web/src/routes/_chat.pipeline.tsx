@@ -6,6 +6,8 @@ import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
+import { Dialog, DialogPopup } from "~/components/ui/dialog";
+import { Sheet, SheetPopup } from "~/components/ui/sheet";
 import { SidebarInset } from "~/components/ui/sidebar";
 import { Spinner } from "~/components/ui/spinner";
 import {
@@ -295,6 +297,7 @@ function PipelinePage() {
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
 
+  const composerDirty = useRef(false);
   const selRef = useRef<string | null>(null);
   selRef.current = selected;
 
@@ -553,25 +556,6 @@ function PipelinePage() {
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
-              {composing ? (
-                <div className="mb-4">
-                  <NewTask
-                    pipelines={pipelines}
-                    repos={repos}
-                    users={users}
-                    skills={skills}
-                    models={models}
-                    me={me}
-                    onCancel={() => setComposing(false)}
-                    onCreated={(id) => {
-                      setComposing(false);
-                      setSelected(id);
-                      void refresh();
-                    }}
-                  />
-                </div>
-              ) : null}
-
               {!loaded ? (
                 <p className="py-16 text-center text-sm text-muted-foreground">Loading…</p>
               ) : tasks.length === 0 ? (
@@ -604,7 +588,7 @@ function PipelinePage() {
                         if (id) void move(id, col.key);
                       }}
                       className={cn(
-                        "w-[168px] shrink-0 space-y-2 rounded-xl xl:w-[196px]",
+                        "w-[200px] shrink-0 space-y-2 rounded-xl xl:w-[228px]",
                         dropTarget === col.key &&
                           "bg-primary/6 outline-2 outline-dashed outline-primary/40",
                       )}
@@ -648,26 +632,31 @@ function PipelinePage() {
             </div>
           </div>
 
-          <aside className="hidden w-[380px] shrink-0 border-l border-border/50 bg-card/20 lg:block xl:w-[440px] 2xl:w-[520px]">
-            {task ? (
-              <TaskDetail
-                task={task}
-                detail={details[task.id] ?? null}
-                repo={repos.find((r) => r.id === task.repo_id)}
-                users={users}
-                envId={envId}
-                now={now}
-                onChanged={() => void refresh()}
-              />
-            ) : (
-              <div className="flex h-full items-center justify-center px-6 text-center">
-                <p className="max-w-56 text-[13px] leading-[1.5] text-muted-foreground">
-                  Pick a task to see its stages, read what the agents wrote, and answer anything
-                  they need.
-                </p>
-              </div>
-            )}
-          </aside>
+          <Sheet
+            open={selected !== null}
+            onOpenChange={(open) => {
+              if (!open) setSelected(null);
+            }}
+          >
+            <SheetPopup
+              side="right"
+              className="w-full p-0 sm:max-w-[520px] lg:max-w-[600px]"
+              aria-label={task ? `${task.ticket}: ${task.title}` : "Task"}
+            >
+              {task ? (
+                <TaskDetail
+                  task={task}
+                  detail={details[task.id] ?? null}
+                  repo={repos.find((r) => r.id === task.repo_id)}
+                  users={users}
+                  envId={envId}
+                  now={now}
+                  onChanged={() => void refresh()}
+                  onMove={(stage) => void move(task.id, stage)}
+                />
+              ) : null}
+            </SheetPopup>
+          </Sheet>
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-auto">
@@ -688,6 +677,44 @@ function PipelinePage() {
           </WorkspacePageContainer>
         </div>
       )}
+      <Dialog
+        open={composing}
+        onOpenChange={(open) => {
+          // Escape, the backdrop and the close button all land here; the composer
+          // owns the "you have typed something" question, so ask it once, here.
+          if (
+            !open &&
+            composerDirty.current &&
+            !window.confirm("Discard this task? What you have typed will be lost.")
+          )
+            return;
+          setComposing(open);
+        }}
+      >
+        <DialogPopup className="max-w-2xl p-0" aria-label="New task">
+          <NewTask
+            pipelines={pipelines}
+            repos={repos}
+            users={users}
+            skills={skills}
+            models={models}
+            me={me}
+            onDirtyChange={(d) => {
+              composerDirty.current = d;
+            }}
+            onCancel={() => {
+              composerDirty.current = false;
+              setComposing(false);
+            }}
+            onCreated={(id) => {
+              composerDirty.current = false;
+              setComposing(false);
+              setSelected(id);
+              void refresh();
+            }}
+          />
+        </DialogPopup>
+      </Dialog>
     </SidebarInset>
   );
 }
