@@ -451,6 +451,31 @@
         width: 64px;
         height: 64px;
         object-fit: contain;
+        /* The mark is four arcs at ninety degrees to each other, so turning it
+           reads as motion without needing a ring drawn around it. Slow, because a
+           splash that spins fast looks like something is wrong. */
+        animation: airaa-turn 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+      }
+
+      @keyframes airaa-turn {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #boot-shell-logo {
+          animation: airaa-fade 2s ease-in-out infinite;
+        }
+        @keyframes airaa-fade {
+          0%,
+          100% {
+            opacity: 1;
+          }
+          50% {
+            opacity: 0.45;
+          }
+        }
       }
 
       #boot-error {
@@ -483,7 +508,7 @@
     <div id="root">
       <div id="boot-shell">
         <div id="boot-shell-card" aria-label="Airaa AI splash screen">
-          <img id="boot-shell-logo" src="/apple-touch-icon.png" alt="Airaa AI" />
+          <img id="boot-shell-logo" src="/airaa-mark.svg" alt="Airaa AI" />
         </div>
       </div>
     </div>

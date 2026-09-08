@@ -2045,3 +2045,13 @@ code {
     visibility: visible;
   }
 }
+
+/* Airaa's own waiting state. The mark is four arcs at ninety degrees to each
+   other, so a slow turn reads as motion without a ring drawn around it. Used by
+   AiraaLoader and by the boot splash in index.html, which defines its own copy
+   because it runs before any stylesheet loads. */
+@keyframes airaa-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}

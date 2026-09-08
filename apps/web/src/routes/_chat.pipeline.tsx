@@ -49,6 +49,7 @@ import { NewTask } from "~/components/pipeline/NewTask";
 import { PipelineSettings } from "~/components/pipeline/PipelineSettings";
 import { Spine } from "~/components/pipeline/Spine";
 import { StateBadge } from "~/components/pipeline/StateBadge";
+import { AiraaLoader } from "~/components/pipeline/AiraaLoader";
 import { GithubIdentity } from "~/components/pipeline/GithubIdentity";
 import { TaskDetail } from "~/components/pipeline/TaskDetail";
 
@@ -581,7 +582,7 @@ function PipelinePage() {
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
               {!loaded ? (
-                <p className="py-16 text-center text-sm text-muted-foreground">Loading…</p>
+                <AiraaLoader className="py-16" label="Loading the board" />
               ) : tasks.length === 0 ? (
                 <div className="mx-auto max-w-md py-16 text-center">
                   <h2 className="text-sm font-medium text-foreground">

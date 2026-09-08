@@ -1,3 +1,4 @@
+import { AiraaLoader } from "./AiraaLoader";
 import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "~/components/ui/button";
 import {
@@ -151,7 +152,7 @@ export function ArtifactViewer({
         </div>
       </header>
       {content === null ? (
-        <p className="px-3 py-6 text-center text-xs text-muted-foreground">Loading…</p>
+        <AiraaLoader size="sm" className="px-3 py-6" label="Loading the document" />
       ) : meta.kind === "html" ? (
         <iframe
           title={`${meta.stage} mockup`}
