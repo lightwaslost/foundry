@@ -46,7 +46,7 @@ import { StateBadge } from "./StateBadge";
 export function TaskDetail({
   task,
   detail,
-  repo,
+  repos,
   users,
   envId,
   onChanged,
@@ -55,13 +55,16 @@ export function TaskDetail({
 }: {
   task: Task;
   detail: Detail | null;
-  repo: Repo | undefined;
+  repos: Repo[];
   users: User[];
   envId: string | null;
   onChanged: () => void;
   onMove: (stage: string) => void;
   now: number;
 }) {
+  const repo = repos.find((r) => r.id === task.repo_id);
+  // Named in the order the task spans them, primary first.
+  const spans = (task.repo_ids ?? []).map((id) => repos.find((r) => r.id === id)?.name ?? "?");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<
@@ -120,7 +123,17 @@ export function TaskDetail({
               <MenuItem onClick={() => onMove("shipped")}>shipped — close this task</MenuItem>
             </MenuPopup>
           </Menu>
-          {repo ? <span>{repo.name}</span> : null}
+          {spans.length > 1 ? (
+            <Tooltip>
+              <TooltipTrigger render={<span />}>{spans.join(" · ")}</TooltipTrigger>
+              <TooltipPopup side="bottom">
+                One branch across {spans.length} repositories. {spans[0]} holds the documents; each
+                repository that changes gets its own pull request.
+              </TooltipPopup>
+            </Tooltip>
+          ) : repo ? (
+            <span>{repo.name}</span>
+          ) : null}
           <span className="inline-flex items-center gap-1">
             <GitBranchIcon className="size-3" />
             {task.branch}

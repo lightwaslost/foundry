@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BellIcon, PlusIcon, SearchIcon, XIcon } from "lucide-react";
+import { BellIcon, LayersIcon, PlusIcon, SearchIcon, XIcon } from "lucide-react";
 
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -264,6 +264,15 @@ function TaskCard({
             {task.pipeline}
           </Badge>
         )}
+        {(task.repo_ids?.length ?? 0) > 1 ? (
+          <span
+            title={`Spans ${task.repo_ids!.length} repositories on one branch`}
+            className="inline-flex shrink-0 items-center gap-0.5 font-mono text-[10px] text-muted-foreground"
+          >
+            <LayersIcon aria-hidden className="size-3" />
+            {task.repo_ids!.length}
+          </span>
+        ) : null}
         {assignee ? (
           <span
             title={assignee.name}
@@ -660,7 +669,7 @@ function PipelinePage() {
                 <TaskDetail
                   task={task}
                   detail={details[task.id] ?? null}
-                  repo={repos.find((r) => r.id === task.repo_id)}
+                  repos={repos}
                   users={users}
                   envId={envId}
                   now={now}

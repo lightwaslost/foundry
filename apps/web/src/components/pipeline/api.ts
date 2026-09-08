@@ -83,6 +83,8 @@ export interface Task {
   title: string;
   description: string;
   repo_id: string;
+  /** Every repository the task may change, primary first. */
+  repo_ids?: string[];
   pipeline: string;
   pipeline_snapshot: SnapshotStage[];
   assignee_id: string | null;

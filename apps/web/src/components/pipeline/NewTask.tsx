@@ -11,7 +11,7 @@ import {
 } from "~/components/ui/select";
 import { Spinner } from "~/components/ui/spinner";
 import { Textarea } from "~/components/ui/textarea";
-import { ChevronRightIcon, SlidersHorizontalIcon } from "lucide-react";
+import { CheckIcon, ChevronRightIcon, PlusIcon, SlidersHorizontalIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 import {
   post,
@@ -55,6 +55,8 @@ export function NewTask({
   const [description, setDescription] = useState("");
   const [pipelineName, setPipelineName] = useState(pipelines[0]?.name ?? "feature");
   const [repo, setRepo] = useState("");
+  // Repositories beyond the primary that this task is allowed to change.
+  const [extras, setExtras] = useState<string[]>([]);
   const [assignee, setAssignee] = useState(me?.id ?? "");
   const [overrides, setOverrides] = useState<Record<string, StageOverride>>({});
   const [openStage, setOpenStage] = useState<string | null>(null);
@@ -63,6 +65,8 @@ export function NewTask({
   const [err, setErr] = useState<string | null>(null);
 
   const cloned = useMemo(() => repos.filter((r) => r.clone_state === "cloned"), [repos]);
+  const others = useMemo(() => cloned.filter((r) => r.id !== repo), [cloned, repo]);
+  const allPicked = others.length > 0 && others.every((r) => extras.includes(r.id));
   useEffect(() => {
     if (!repo && cloned[0]) setRepo(cloned[0].id);
   }, [cloned, repo]);
@@ -70,6 +74,12 @@ export function NewTask({
     if (!pipelines.some((p) => p.name === pipelineName) && pipelines[0])
       setPipelineName(pipelines[0].name);
   }, [pipelines, pipelineName]);
+
+  // Whichever repository leads is never also an "also change" — picking it there
+  // would ask the backend for the same repo twice.
+  useEffect(() => {
+    setExtras((prev) => prev.filter((id) => id !== repo));
+  }, [repo]);
 
   const pipeline = pipelines.find((p) => p.name === pipelineName);
   // Stage tweaks belong to the pipeline they were made against.
@@ -87,6 +97,7 @@ export function NewTask({
       description,
       pipeline: pipelineName,
       repo_id: repo,
+      ...(extras.length ? { extra_repo_ids: extras } : {}),
       assignee_id: assignee || null,
       ...(Object.keys(overrides).length ? { stage_overrides: overrides } : {}),
     });
@@ -96,6 +107,7 @@ export function NewTask({
     setTitle("");
     setDescription("");
     setOverrides({});
+    setExtras([]);
     onCreated(r.task!.id);
   };
 
@@ -104,7 +116,11 @@ export function NewTask({
     .map(([k]) => k);
   // Losing a half-written ticket to a stray Escape is a small betrayal people
   // remember, so leaving with something typed asks first — here and in the dialog.
-  const dirty = title.trim().length > 0 || description.trim().length > 0 || tweaked.length > 0;
+  const dirty =
+    title.trim().length > 0 ||
+    description.trim().length > 0 ||
+    tweaked.length > 0 ||
+    extras.length > 0;
   useEffect(() => {
     onDirtyChange?.(dirty);
   }, [dirty, onDirtyChange]);
@@ -197,6 +213,58 @@ export function NewTask({
             </Select>
           </div>
         </div>
+
+        {others.length ? (
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <Label>Also change</Label>
+              <button
+                type="button"
+                className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                onClick={() => setExtras(allPicked ? [] : others.map((r) => r.id))}
+              >
+                {allPicked ? "none" : "all repos"}
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {others.map((r) => {
+                const on = extras.includes(r.id);
+                return (
+                  <button
+                    key={r.id}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() =>
+                      setExtras((prev) =>
+                        prev.includes(r.id) ? prev.filter((x) => x !== r.id) : [...prev, r.id],
+                      )
+                    }
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[11px] transition-colors",
+                      on
+                        ? "border-primary/40 bg-primary/12 text-foreground"
+                        : "border-border/60 text-muted-foreground hover:bg-accent hover:text-foreground",
+                    )}
+                  >
+                    {on ? (
+                      <CheckIcon aria-hidden className="size-3" />
+                    ) : (
+                      <PlusIcon aria-hidden className="size-3 opacity-60" />
+                    )}
+                    {r.name}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              {extras.length
+                ? `The agent works across ${extras.length + 1} repositories on one branch — ${
+                    cloned.find((r) => r.id === repo)?.name ?? "the primary"
+                  } holds the documents, and every repository it actually changes gets its own pull request, linked to the others.`
+                : "Optional. Pick the other repositories this change reaches; they branch under the same name."}
+            </p>
+          </div>
+        ) : null}
 
         {pipeline ? (
           <div className="rounded-lg border border-border/60">
