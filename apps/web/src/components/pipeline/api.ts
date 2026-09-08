@@ -100,6 +100,7 @@ export type RunState =
   | "questioning"
   | "awaiting_answers"
   | "running"
+  | "conversing"
   | "collecting"
   | "testing"
   | "awaiting_gate"
@@ -114,6 +115,8 @@ export interface Run {
   attempt: number;
   state: RunState;
   t3_thread_id: string | null;
+  /** This stage's turn is a conversation with a person, not one shot. */
+  stage_interactive?: boolean;
   queued_at: string;
   started_at: string | null;
   active_ms: number | string;
@@ -208,6 +211,7 @@ export const BUSY: ReadonlySet<RunState> = new Set([
 /** States where the run is stopped, waiting for a person to act. */
 export const NEEDS_HUMAN: ReadonlySet<RunState> = new Set([
   "awaiting_answers",
+  "conversing",
   "awaiting_gate",
   "parked",
 ]);
@@ -217,7 +221,8 @@ export type Tone = "idle" | "busy" | "attention" | "done" | "failed";
 export function toneOf(state: RunState): Tone {
   if (state === "done") return "done";
   if (state === "parked" || state === "rejected" || state === "cancelled") return "failed";
-  if (state === "awaiting_gate" || state === "awaiting_answers") return "attention";
+  if (state === "awaiting_gate" || state === "awaiting_answers" || state === "conversing")
+    return "attention";
   if (BUSY.has(state)) return "busy";
   return "idle";
 }
@@ -228,6 +233,7 @@ export const STATE_LABEL: Record<RunState, string> = {
   questioning: "asking",
   awaiting_answers: "needs answers",
   running: "working",
+  conversing: "your turn",
   collecting: "collecting",
   testing: "testing",
   awaiting_gate: "needs review",
@@ -241,6 +247,7 @@ export const STATE_LABEL: Record<RunState, string> = {
 export const PARK_REASON: Record<string, string> = {
   timeout: "Ran past its time limit",
   turn_error: "The agent's session failed",
+  setup_failed: "The repository could not install its dependencies",
   token_rate_limited: "Claude usage limit reached",
   token_auth_failed: "The Claude credential was rejected",
   question_state_lost: "T3 restarted while the agent was waiting for an answer",

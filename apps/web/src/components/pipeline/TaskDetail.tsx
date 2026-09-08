@@ -34,6 +34,7 @@ import {
   type User,
 } from "./api";
 import { ArtifactViewer, DiffView } from "./Artifact";
+import { ConversationPanel } from "./Conversation";
 import { GatePanel, QuestionsPanel } from "./HumanPanels";
 import { ActiveTime, SpineNode } from "./Spine";
 import { Workspace } from "./Workspace";
@@ -392,6 +393,16 @@ function RunCard({
       {run.state === "awaiting_answers" ? (
         <div className="px-2 pb-2">
           <QuestionsPanel run={run} onAnswered={onChanged} />
+        </div>
+      ) : null}
+      {run.state === "conversing" || (run.state === "running" && run.stage_interactive) ? (
+        <div className="px-2 pb-2">
+          <ConversationPanel
+            run={run}
+            envId={envId}
+            hasDraft={Boolean(artifact)}
+            onChanged={onChanged}
+          />
         </div>
       ) : null}
       {gate ? (
