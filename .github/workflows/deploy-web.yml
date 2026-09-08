@@ -32,7 +32,14 @@ jobs:
           # successful deploy as a failure. Keepalives here; the verdict is the verify step.
           SSHOPTS: "-o ServerAliveInterval=15 -o ServerAliveCountMax=6 -o ConnectTimeout=20"
         run: |
-          rsync -az --delete --timeout=120 -e "ssh $SSHOPTS" apps/web/dist/ "$H:/tmp/t3-client-new/"
+          # The link between GitHub's runners and this host drops often enough to
+          # fail a deploy that has nothing wrong with it. Retry before giving up.
+          for attempt in 1 2 3; do
+            rsync -az --delete --timeout=120 -e "ssh $SSHOPTS" apps/web/dist/ "$H:/tmp/t3-client-new/" && break
+            echo "rsync attempt $attempt failed; retrying in $((attempt * 20))s"
+            sleep $((attempt * 20))
+            [ "$attempt" = 3 ] && exit 1
+          done
           ssh $SSHOPTS "$H" bash -s <<'EOF'
           set -e
           D=/usr/lib/node_modules/t3/dist
