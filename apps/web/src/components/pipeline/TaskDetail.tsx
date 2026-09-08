@@ -10,6 +10,8 @@ import {
   ChevronDownIcon,
   ExternalLinkIcon,
   FileTextIcon,
+  Maximize2Icon,
+  Minimize2Icon,
   GitBranchIcon,
   GitPullRequestIcon,
   PlayIcon,
@@ -54,6 +56,9 @@ export function TaskDetail({
   envId,
   onChanged,
   onMove,
+  onClose,
+  maximized,
+  onToggleMaximized,
   now,
 }: {
   task: Task;
@@ -63,6 +68,9 @@ export function TaskDetail({
   envId: string | null;
   onChanged: () => void;
   onMove: (stage: string) => void;
+  onClose: () => void;
+  maximized: boolean;
+  onToggleMaximized: () => void;
   now: number;
 }) {
   const repo = repos.find((r) => r.id === task.repo_id);
@@ -96,14 +104,25 @@ export function TaskDetail({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="shrink-0 border-b border-border/50 py-3 pr-12 pl-4">
+      <header className="shrink-0 border-b border-border/50 py-3 pr-2 pl-4">
         <div className="flex items-start gap-2">
           <h2 className="min-w-0 flex-1 text-[15px] leading-snug font-semibold tracking-[-0.01em] text-foreground">
             {task.title}
           </h2>
-          <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+          <span className="shrink-0 pt-0.5 font-mono text-[11px] text-muted-foreground">
             {task.ticket}
           </span>
+          <Button
+            size="xs"
+            variant="ghost-muted"
+            aria-label={maximized ? "Restore the panel width" : "Maximize the panel"}
+            onClick={onToggleMaximized}
+          >
+            {maximized ? <Minimize2Icon /> : <Maximize2Icon />}
+          </Button>
+          <Button size="xs" variant="ghost-muted" aria-label="Close this task" onClick={onClose}>
+            <XIcon />
+          </Button>
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px] text-muted-foreground">
           <Badge variant="outline" size="sm">
@@ -163,61 +182,64 @@ export function TaskDetail({
         ) : null}
       </header>
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-auto px-4 py-3">
-        {error ? (
-          <p className="rounded-lg border border-destructive/32 bg-destructive/8 px-3 py-2 text-xs text-destructive-foreground">
-            {error}
-          </p>
-        ) : null}
+      {view ? (
+        <div className="flex min-h-0 flex-1 flex-col">
+          {view.kind === "artifact" ? (
+            <ArtifactViewer
+              meta={view.meta}
+              versions={versionsOf(view.meta.stage)}
+              onPickVersion={(meta) => setView({ kind: "artifact", meta })}
+              onDiff={(fromId, toId) => setView({ kind: "diff", fromId, toId })}
+              onClose={() => setView(null)}
+            />
+          ) : (
+            <DiffView fromId={view.fromId} toId={view.toId} onClose={() => setView(null)} />
+          )}
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1 space-y-3 overflow-auto px-4 py-3">
+          {error ? (
+            <p className="rounded-lg border border-destructive/32 bg-destructive/8 px-3 py-2 text-xs text-destructive-foreground">
+              {error}
+            </p>
+          ) : null}
 
-        {runs.length === 0 ? (
-          <StartCard
-            task={task}
-            busy={busy}
-            onStart={() => void act(`/api/tasks/${task.id}/start`)}
-          />
-        ) : (
-          <ol className="pt-0.5">
-            {runs.map((run, i) => {
-              const gate = gates.find((g) => g.stage_run_id === run.id && !g.decided_at);
-              const artifact = artifacts.find((a) => a.id === run.artifact_id);
-              return (
-                <SpineNode key={run.id} tone={toneOf(run.state)} last={i === runs.length - 1}>
-                  <RunCard
-                    run={run}
-                    gate={gate}
-                    artifact={artifact}
-                    versions={versionsOf(run.stage)}
-                    envId={envId}
-                    busy={busy}
-                    now={now}
-                    onOpenArtifact={(meta) => setView({ kind: "artifact", meta })}
-                    onDiff={(fromId, toId) => setView({ kind: "diff", fromId, toId })}
-                    onRetry={() => void act(`/api/runs/${run.id}/retry`)}
-                    onCancel={() => void act(`/api/runs/${run.id}/cancel`)}
-                    onChanged={onChanged}
-                  />
-                </SpineNode>
-              );
-            })}
-          </ol>
-        )}
+          {runs.length === 0 ? (
+            <StartCard
+              task={task}
+              busy={busy}
+              onStart={() => void act(`/api/tasks/${task.id}/start`)}
+            />
+          ) : (
+            <ol className="pt-0.5">
+              {runs.map((run, i) => {
+                const gate = gates.find((g) => g.stage_run_id === run.id && !g.decided_at);
+                const artifact = artifacts.find((a) => a.id === run.artifact_id);
+                return (
+                  <SpineNode key={run.id} tone={toneOf(run.state)} last={i === runs.length - 1}>
+                    <RunCard
+                      run={run}
+                      gate={gate}
+                      artifact={artifact}
+                      versions={versionsOf(run.stage)}
+                      envId={envId}
+                      busy={busy}
+                      now={now}
+                      onOpenArtifact={(meta) => setView({ kind: "artifact", meta })}
+                      onDiff={(fromId, toId) => setView({ kind: "diff", fromId, toId })}
+                      onRetry={() => void act(`/api/runs/${run.id}/retry`)}
+                      onCancel={() => void act(`/api/runs/${run.id}/cancel`)}
+                      onChanged={onChanged}
+                    />
+                  </SpineNode>
+                );
+              })}
+            </ol>
+          )}
 
-        <Workspace taskId={task.id} onChanged={onChanged} />
-
-        {view?.kind === "artifact" ? (
-          <ArtifactViewer
-            meta={view.meta}
-            versions={versionsOf(view.meta.stage)}
-            onPickVersion={(meta) => setView({ kind: "artifact", meta })}
-            onDiff={(fromId, toId) => setView({ kind: "diff", fromId, toId })}
-            onClose={() => setView(null)}
-          />
-        ) : null}
-        {view?.kind === "diff" ? (
-          <DiffView fromId={view.fromId} toId={view.toId} onClose={() => setView(null)} />
-        ) : null}
-      </div>
+          <Workspace taskId={task.id} onChanged={onChanged} />
+        </div>
+      )}
     </div>
   );
 }

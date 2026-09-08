@@ -1,8 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BellIcon, LayersIcon, PlusIcon, SearchIcon, XIcon } from "lucide-react";
+import { BellIcon, PlusIcon, SearchIcon, XIcon } from "lucide-react";
 
-import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import {
@@ -14,7 +13,6 @@ import {
 } from "~/components/ui/select";
 import { Label } from "~/components/ui/label";
 import { Dialog, DialogPopup } from "~/components/ui/dialog";
-import { Sheet, SheetPopup } from "~/components/ui/sheet";
 import { SidebarInset } from "~/components/ui/sidebar";
 import { Spinner } from "~/components/ui/spinner";
 import {
@@ -28,7 +26,6 @@ import { isElectron } from "~/env";
 import { cn } from "~/lib/utils";
 
 import {
-  ago,
   BUSY,
   call,
   initials,
@@ -40,17 +37,16 @@ import {
   type Detail,
   type PipelineDef,
   type Repo,
-  type Run,
   type Task,
   type User,
 } from "~/components/pipeline/api";
 import { Docs } from "~/components/pipeline/Docs";
 import { NewTask } from "~/components/pipeline/NewTask";
 import { PipelineSettings } from "~/components/pipeline/PipelineSettings";
-import { Spine } from "~/components/pipeline/Spine";
-import { StateBadge } from "~/components/pipeline/StateBadge";
+import { TaskCard } from "~/components/pipeline/TaskCard";
 import { AiraaLoader } from "~/components/pipeline/AiraaLoader";
 import { GithubIdentity } from "~/components/pipeline/GithubIdentity";
+import { PreviewPanelShell } from "~/components/preview/PreviewPanelShell";
 import { TaskDetail } from "~/components/pipeline/TaskDetail";
 
 /**
@@ -195,104 +191,6 @@ function AccountMenu({ me, onSignedOut }: { me: User; onSignedOut: () => void })
   );
 }
 
-function TaskCard({
-  task,
-  runs,
-  users,
-  selected,
-  waiting,
-  onSelect,
-  now,
-  movable,
-  dragging,
-  onDragStart,
-  onDragEnd,
-}: {
-  task: Task;
-  runs: Run[];
-  users: User[];
-  selected: boolean;
-  waiting: Run | undefined;
-  onSelect: () => void;
-  now: number;
-  movable: boolean;
-  dragging: boolean;
-  onDragStart: () => void;
-  onDragEnd: () => void;
-}) {
-  const assignee = users.find((u) => u.id === task.assignee_id);
-  const current = runs.at(-1);
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      draggable={movable}
-      onDragStart={(e) => {
-        if (!movable) return e.preventDefault();
-        e.dataTransfer.effectAllowed = "move";
-        e.dataTransfer.setData("text/plain", task.id);
-        onDragStart();
-      }}
-      onDragEnd={onDragEnd}
-      title={movable ? "Drag to another stage" : "Running — stop it before moving it"}
-      className={cn(
-        "group relative w-full rounded-xl border bg-card/40 px-3 py-2.5 text-left transition-colors",
-        selected
-          ? "border-primary/60 bg-card/70"
-          : "border-border/60 hover:border-border hover:bg-card/60",
-        waiting && "border-warning/40",
-        movable && "cursor-grab active:cursor-grabbing",
-        dragging && "opacity-40",
-      )}
-    >
-      {waiting ? (
-        <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-warning" />
-      ) : null}
-      <div className="flex items-start gap-2">
-        <span className="min-w-0 flex-1 text-[13px] leading-snug font-medium text-foreground">
-          {task.title}
-        </span>
-        <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-          {task.ticket.replace("FND-", "")}
-        </span>
-      </div>
-      <Spine className="mt-2" stages={task.pipeline_snapshot} runs={runs} taskState={task.state} />
-      <div className="mt-2 flex items-center gap-1.5">
-        {waiting ? (
-          <StateBadge state={waiting.state} />
-        ) : current && task.state === "open" ? (
-          <StateBadge state={current.state} />
-        ) : (
-          <Badge variant="outline" size="sm" className="font-mono">
-            {task.pipeline}
-          </Badge>
-        )}
-        {(task.repo_ids?.length ?? 0) > 1 ? (
-          <span
-            title={`Spans ${task.repo_ids!.length} repositories on one branch`}
-            className="inline-flex shrink-0 items-center gap-0.5 font-mono text-[10px] text-muted-foreground"
-          >
-            <LayersIcon aria-hidden className="size-3" />
-            {task.repo_ids!.length}
-          </span>
-        ) : null}
-        {assignee ? (
-          <span
-            title={assignee.name}
-            className="ml-auto grid size-4 shrink-0 place-items-center rounded-full bg-secondary text-[9px] font-medium text-secondary-foreground"
-          >
-            {initials(assignee.name)}
-          </span>
-        ) : (
-          <span className="ml-auto text-[10px] text-muted-foreground/70">
-            {ago(task.created_at, now)}
-          </span>
-        )}
-      </div>
-    </button>
-  );
-}
-
 function PipelinePage() {
   const [needsAuth, setNeedsAuth] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -306,6 +204,7 @@ function PipelinePage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [details, setDetails] = useState<Record<string, Detail>>({});
   const [selected, setSelected] = useState<string | null>(null);
+  const [maximized, setMaximized] = useState(false);
   const [composing, setComposing] = useState(false);
   const [envId, setEnvId] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -319,6 +218,20 @@ function PipelinePage() {
   const composerDirty = useRef(false);
   const selRef = useRef<string | null>(null);
   selRef.current = selected;
+
+  // The sheet used to close itself on Escape; an inline panel has to do it.
+  // Ignored while a dialog or menu is open — those close themselves first.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (document.querySelector("[role=dialog],[role=menu],[role=listbox]")) return;
+      if (selRef.current === null) return;
+      e.preventDefault();
+      setSelected(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // A clock, so elapsed times move without refetching anything.
   useEffect(() => {
@@ -515,7 +428,15 @@ function PipelinePage() {
 
       {tab === "board" ? (
         <div className="flex min-h-0 flex-1">
-          <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          {/* Maximizing the reader takes the board's width entirely, the way T3's
+              own right panel does — the column goes to zero rather than fighting
+              the panel for flex space. */}
+          <div
+            className={cn(
+              "flex min-h-0 min-w-0 flex-col overflow-hidden",
+              maximized && task ? "w-0 flex-none" : "flex-1",
+            )}
+          >
             <div className="flex flex-wrap items-center gap-2 px-5 pt-1 pb-3">
               <Button size="sm" onClick={() => setComposing((v) => !v)}>
                 <PlusIcon /> New task
@@ -657,35 +578,37 @@ function PipelinePage() {
             </div>
           </div>
 
-          <Sheet
-            open={selected !== null}
-            onOpenChange={(open) => {
-              if (!open) setSelected(null);
-            }}
-          >
-            <SheetPopup
-              side="right"
-              className="w-full p-0 sm:max-w-[520px] lg:max-w-[600px]"
-              aria-label={task ? `${task.ticket}: ${task.title}` : "Task"}
+          {/* A document is the deliverable of most stages, so the panel that reads
+              them is sized like T3's own diff and file panels — an inline column
+              you can drag wider and maximize — not a fixed 600px sheet. */}
+          {task ? (
+            <PreviewPanelShell
+              mode="inline"
+              maximized={maximized}
+              widthStorageKey="foundry:task-panel-width"
+              defaultWidth={
+                typeof window === "undefined" ? 720 : Math.floor(window.innerWidth * 0.52)
+              }
             >
-              {task ? (
-                <TaskDetail
-                  task={task}
-                  detail={details[task.id] ?? null}
-                  repos={repos}
-                  users={users}
-                  envId={envId}
-                  now={now}
-                  onChanged={() => void refresh()}
-                  onMove={(stage) => void move(task.id, stage)}
-                />
-              ) : null}
-            </SheetPopup>
-          </Sheet>
+              <TaskDetail
+                task={task}
+                detail={details[task.id] ?? null}
+                repos={repos}
+                users={users}
+                envId={envId}
+                now={now}
+                maximized={maximized}
+                onToggleMaximized={() => setMaximized((v) => !v)}
+                onClose={() => setSelected(null)}
+                onChanged={() => void refresh()}
+                onMove={(stage) => void move(task.id, stage)}
+              />
+            </PreviewPanelShell>
+          ) : null}
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-auto">
-          <WorkspacePageContainer width={tab === "docs" ? "readable" : "wide"}>
+          <WorkspacePageContainer width="wide">
             {tab === "pipelines" ? (
               <PipelineSettings
                 pipelines={pipelines}
