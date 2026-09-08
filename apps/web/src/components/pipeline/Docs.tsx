@@ -1,6 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
 import {
-  ArrowRightIcon,
   CheckIcon,
   ClockIcon,
   FileTextIcon,
@@ -299,7 +298,7 @@ function Demo({
 /** One step of the loop at the top of the page. */
 function Step({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
   return (
-    <div className="min-w-[132px] flex-1 rounded-xl border border-border/60 bg-card/40 px-3 py-2.5">
+    <div className="rounded-xl border border-border/60 bg-card/40 px-3 py-2.5">
       <div className="flex items-center gap-1.5 text-foreground">
         <span className="text-muted-foreground [&_svg]:size-3.5">{icon}</span>
         <span className="text-[12px] font-medium">{title}</span>
@@ -308,13 +307,6 @@ function Step({ icon, title, children }: { icon: ReactNode; title: string; child
     </div>
   );
 }
-
-const Arrow = () => (
-  <ArrowRightIcon
-    aria-hidden
-    className="hidden size-3.5 shrink-0 self-center text-muted-foreground/50 md:block"
-  />
-);
 
 // ── the states of a run, in the order they happen ─────────────────────────────
 const AUTOMATIC: Array<[RunState, string]> = [
@@ -387,28 +379,27 @@ export function Docs() {
             locked inside a tool.
           </p>
 
-          <div className="flex flex-col gap-2 md:flex-row">
+          {/* Two rows of three rather than six across: the content column here is
+              about 800px, and six cards with a minimum width cannot fit in it —
+              they used to overflow under the table of contents. The numbering
+              carries the order, so the arrows between them were decoration. */}
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
             <Step icon={<TicketIcon />} title="1 · A ticket">
               You describe the work and pick a pipeline. Nothing runs until you press Start.
             </Step>
-            <Arrow />
             <Step icon={<GitBranchIcon />} title="2 · A branch">
               One branch per ticket, <Term>foundry/&lt;ticket&gt;</Term>, with the same name in
               every repository the task touches.
             </Step>
-            <Arrow />
             <Step icon={<PlayIcon />} title="3 · A stage runs">
               One agent thread per stage attempt, working in a git worktree of that branch.
             </Step>
-            <Arrow />
             <Step icon={<FileTextIcon />} title="4 · A file lands">
               The deliverable is committed under <Term>specs/&lt;TICKET&gt;/</Term>.
             </Step>
-            <Arrow />
             <Step icon={<CheckIcon />} title="5 · You approve">
               Approve, edit, or send it back. Approving queues the next stage — back to 3.
             </Step>
-            <Arrow />
             <Step icon={<GitPullRequestIcon />} title="6 · A draft PR">
               The build stage pushes the branch and opens a draft pull request. Agents never merge.
             </Step>
