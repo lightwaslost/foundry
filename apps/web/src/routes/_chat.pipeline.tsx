@@ -648,6 +648,88 @@ function GatePanel({
   );
 }
 
+/** Your own account: change the password you were handed, or sign out. */
+function AccountMenu({ me, onSignedOut }: { me: User; onSignedOut: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const change = async () => {
+    setBusy(true);
+    setErr(null);
+    setMsg(null);
+    const r = await call<{ error?: string }>("/api/auth/password", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ current_password: current, new_password: next }),
+    });
+    setBusy(false);
+    if (unauthorized(r)) return;
+    if (r.error) {
+      setErr(r.error);
+      return;
+    }
+    setCurrent("");
+    setNext("");
+    setMsg("Password changed. Your other devices were signed out.");
+  };
+  const signOut = async () => {
+    await call("/api/auth/logout", { method: "POST" });
+    onSignedOut();
+  };
+  const cls =
+    "border-input bg-background focus-visible:border-primary h-8 w-full rounded-md border px-2 text-sm outline-none";
+  return (
+    <div className="relative ml-auto">
+      <Button size="xs" variant="ghost-muted" onClick={() => setOpen((v) => !v)}>
+        {me.name} · {me.role}
+      </Button>
+      {open ? (
+        <div className="bg-popover absolute right-0 z-50 mt-1 w-64 rounded-md border p-2.5 shadow-md">
+          <p className="text-muted-foreground mb-2 font-mono text-[11px]">{me.email}</p>
+          <div className="space-y-1.5">
+            <input
+              type="password"
+              value={current}
+              onChange={(e) => setCurrent(e.target.value)}
+              placeholder="Current password"
+              className={cls}
+            />
+            <input
+              type="password"
+              value={next}
+              onChange={(e) => setNext(e.target.value)}
+              placeholder="New password (8+ characters)"
+              className={cls}
+            />
+            <Button
+              size="xs"
+              className="w-full"
+              onClick={() => void change()}
+              disabled={busy || !current || next.length < 8}
+            >
+              {busy ? <Spinner /> : null}Change password
+            </Button>
+          </div>
+          {msg ? <p className="text-primary mt-2 text-xs">{msg}</p> : null}
+          {err ? <p className="text-destructive-foreground mt-2 text-xs">{err}</p> : null}
+          <Button
+            size="xs"
+            variant="ghost-muted"
+            className="mt-2 w-full"
+            onClick={() => void signOut()}
+          >
+            Sign out
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function PipelinePage() {
   const [needsAuth, setNeedsAuth] = useState(false);
   const [me, setMe] = useState<User | null>(null);
@@ -747,9 +829,15 @@ function PipelinePage() {
       <div className="min-w-0 flex-1 overflow-auto p-4">
         <div className="mb-3 flex items-center gap-3">
           <h1 className="text-foreground text-sm font-semibold">Pipeline</h1>
-          <span className="text-muted-foreground font-mono text-[11px]">
-            {me?.name} · {me?.role}
-          </span>
+          {me ? (
+            <AccountMenu
+              me={me}
+              onSignedOut={() => {
+                setMe(null);
+                setNeedsAuth(true);
+              }}
+            />
+          ) : null}
         </div>
         <NewTask
           pipelines={pipelines}
