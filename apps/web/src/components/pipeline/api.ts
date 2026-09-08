@@ -117,6 +117,9 @@ export interface Run {
   t3_thread_id: string | null;
   /** This stage's turn is a conversation with a person, not one shot. */
   stage_interactive?: boolean;
+  /** When the agent's thread last changed. Absence of movement is the only signal
+   *  a wedged session gives — nothing reports an error. */
+  last_progress_at?: string | null;
   queued_at: string;
   started_at: string | null;
   active_ms: number | string;
@@ -251,6 +254,7 @@ export const PARK_REASON: Record<string, string> = {
   token_rate_limited: "Claude usage limit reached",
   token_auth_failed: "The Claude credential was rejected",
   question_state_lost: "The agent session that asked the question is gone",
+  stalled: "The agent went quiet without failing",
   dispatch_rejected: "T3 refused the command",
   t3_unreachable: "T3 could not be reached",
   unexpected_approval: "The agent asked for a permission it should not need",

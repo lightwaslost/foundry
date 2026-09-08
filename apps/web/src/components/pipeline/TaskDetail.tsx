@@ -6,6 +6,7 @@ import { Spinner } from "~/components/ui/spinner";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import {
+  ActivityIcon,
   ChevronDownIcon,
   ExternalLinkIcon,
   FileTextIcon,
@@ -17,21 +18,22 @@ import {
 } from "lucide-react";
 import { cn } from "~/lib/utils";
 import {
+  BUSY,
+  NEEDS_HUMAN,
+  PARK_REASON,
   activeMs,
   ago,
   duration,
   initials,
-  NEEDS_HUMAN,
-  PARK_REASON,
   post,
   toneOf,
-  unauthorized,
   type ArtifactMeta,
   type Detail,
   type Repo,
   type Run,
   type Task,
   type User,
+  unauthorized,
 } from "./api";
 import { ArtifactViewer, DiffView } from "./Artifact";
 import { ConversationPanel } from "./Conversation";
@@ -304,6 +306,21 @@ function RunCard({
           </span>
         ) : null}
         {run.finished_at ? <span>{ago(run.finished_at, now)}</span> : null}
+        {/* A working stage says "working" whether it is thinking or wedged. The only
+            thing that tells them apart is whether its thread has moved recently, so
+            that is shown rather than left in the database. */}
+        {BUSY.has(run.state) && run.last_progress_at ? (
+          <span
+            className={cn(
+              "inline-flex items-center gap-1",
+              now - new Date(run.last_progress_at).getTime() > 120_000 && "text-warning-foreground",
+            )}
+            title="When this agent's thread last changed. A long silence usually means a wedged session, not deep thought."
+          >
+            <ActivityIcon aria-hidden className="size-3" />
+            {ago(run.last_progress_at, now)}
+          </span>
+        ) : null}
       </div>
 
       {park ? (
