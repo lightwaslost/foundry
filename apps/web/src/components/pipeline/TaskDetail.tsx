@@ -191,17 +191,20 @@ function StartCard({ task, busy, onStart }: { task: Task; busy: boolean; onStart
       <p className="py-8 text-center text-sm text-muted-foreground">This task is {task.state}.</p>
     );
   }
+  // Start runs the stage the task is sitting in, which a person may have dragged it to.
+  const stage = task.stage ?? task.pipeline_snapshot[0]?.name;
+  const moved = task.stage !== task.pipeline_snapshot[0]?.name;
   return (
     <section className="rounded-xl border border-border/60 bg-card/40 px-3 py-3">
       <h3 className="text-[13px] font-medium text-foreground">Nothing has run yet</h3>
       <p className="mt-1 text-[13px] leading-[1.45] text-muted-foreground">
-        Starting runs{" "}
-        <span className="font-mono text-[12px]">{task.pipeline_snapshot[0]?.name}</span> as an agent
-        session on <span className="font-mono text-[12px]">{task.branch}</span>. It will ask you
-        anything it needs before it writes.
+        Starting runs <span className="font-mono text-[12px]">{stage}</span> as an agent session on{" "}
+        <span className="font-mono text-[12px]">{task.branch}</span>. It will ask you anything it
+        needs before it writes.
+        {moved ? " Drag the card to another column to run a different stage." : ""}
       </p>
       <Button size="sm" className="mt-2.5" onClick={onStart} disabled={busy}>
-        {busy ? <Spinner /> : <PlayIcon />}Start the pipeline
+        {busy ? <Spinner /> : <PlayIcon />}Start {stage}
       </Button>
     </section>
   );
