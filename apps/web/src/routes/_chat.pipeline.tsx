@@ -471,7 +471,7 @@ function PipelinePage() {
                   </p>
                 </div>
               ) : (
-                <div className="-mx-1 flex gap-2.5 overflow-x-auto px-1 pb-2">
+                <div className="-mx-1 flex gap-2.5 overflow-x-auto px-1 pb-2 [mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)]">
                   {columns.map((col) => (
                     <div key={col.key} className="w-[168px] shrink-0 space-y-2 xl:w-[196px]">
                       <div className="flex items-baseline gap-1.5 px-0.5">
@@ -482,6 +482,11 @@ function PipelinePage() {
                           {col.tasks.length || ""}
                         </span>
                       </div>
+                      {col.tasks.length === 0 ? (
+                        <div className="rounded-xl border border-dashed border-border/50 px-3 py-4 text-center text-[11px] text-muted-foreground/50">
+                          nothing here
+                        </div>
+                      ) : null}
                       {col.tasks.map((t) => (
                         <TaskCard
                           key={t.id}
