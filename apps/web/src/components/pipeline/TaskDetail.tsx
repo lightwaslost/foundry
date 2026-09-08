@@ -414,12 +414,7 @@ function RunCard({
       ) : null}
       {run.state === "conversing" || (run.state === "running" && run.stage_interactive) ? (
         <div className="px-2 pb-2">
-          <ConversationPanel
-            run={run}
-            envId={envId}
-            hasDraft={Boolean(artifact)}
-            onChanged={onChanged}
-          />
+          <ConversationPanel run={run} envId={envId} onChanged={onChanged} />
         </div>
       ) : null}
       {gate ? (

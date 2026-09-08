@@ -6,6 +6,11 @@ import { CheckIcon, MessageSquareIcon, SendIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { call, post, unauthorized, type Run } from "./api";
 
+interface Draft {
+  file: string;
+  bytes: number;
+}
+
 interface Turn {
   body: string;
   author: string | null;
@@ -30,17 +35,17 @@ interface Turn {
 export function ConversationPanel({
   run,
   envId,
-  hasDraft,
   onChanged,
 }: {
   run: Run;
   envId: string | null;
-  /** The stage has written its deliverable — the agent's way of proposing it is done. */
-  hasDraft: boolean;
   onChanged: () => void;
 }) {
   const [turns, setTurns] = useState<Turn[] | null>(null);
-  const [draft, setDraft] = useState("");
+  // Whether the agent has written its deliverable yet — read from the worktree, not
+  // from an artifact, because artifacts are only created once you accept.
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [reply, setReply] = useState("");
   const [busy, setBusy] = useState<"say" | "finish" | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
@@ -50,9 +55,14 @@ export function ConversationPanel({
   useEffect(() => {
     let live = true;
     const load = () =>
-      void call<{ turns: Turn[] }>(`/api/runs/${run.id}/conversation`).then((r) => {
-        if (live && !unauthorized(r)) setTurns(r.turns);
-      });
+      void call<{ turns: Turn[]; draft: Draft | null }>(`/api/runs/${run.id}/conversation`).then(
+        (r) => {
+          if (live && !unauthorized(r)) {
+            setTurns(r.turns);
+            setDraft(r.draft);
+          }
+        },
+      );
     load();
     // While the agent has the turn, its reply is what we are waiting for.
     const t = setInterval(load, waiting ? 8000 : 3000);
@@ -63,7 +73,7 @@ export function ConversationPanel({
   }, [run.id, waiting]);
 
   const say = async () => {
-    const text = draft.trim();
+    const text = reply.trim();
     if (!text) return;
     setBusy("say");
     setErr(null);
@@ -71,7 +81,7 @@ export function ConversationPanel({
     setBusy(null);
     if (unauthorized(r)) return;
     if (r.error) return setErr(r.error);
-    setDraft("");
+    setReply("");
     onChanged();
   };
 
@@ -146,8 +156,8 @@ export function ConversationPanel({
               ? "Answer, or tell it what to change. ⌘↵ to send."
               : "The agent has the turn — it will hand back when it stops."
           }
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          value={reply}
+          onChange={(e) => setReply(e.target.value)}
           onKeyDown={(e) => {
             if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
               e.preventDefault();
@@ -159,25 +169,25 @@ export function ConversationPanel({
           <Button
             size="xs"
             onClick={() => void say()}
-            disabled={!waiting || busy !== null || !draft.trim()}
+            disabled={!waiting || busy !== null || !reply.trim()}
           >
             {busy === "say" ? <Spinner /> : <SendIcon />}Send
           </Button>
           <Button
             size="xs"
-            variant={hasDraft ? "default" : "ghost-muted"}
+            variant={draft ? "default" : "ghost-muted"}
             onClick={() => void finish()}
             disabled={!waiting || busy !== null}
             title={
-              hasDraft
-                ? "Accept what the agent wrote and move on"
+              draft
+                ? `Accept ${draft.file} and move on`
                 : "The agent has not written anything yet — you can still finish, but there will be no document"
             }
           >
             {busy === "finish" ? <Spinner /> : <CheckIcon />}Looks right
           </Button>
           <span className="ml-auto text-[11px] text-muted-foreground">
-            {hasDraft ? "a draft is ready to read" : "nothing written yet"}
+            {draft ? `${draft.file} is ready to read` : "nothing written yet"}
           </span>
         </div>
         {err ? <p className="text-[11px] text-destructive-foreground">{err}</p> : null}
