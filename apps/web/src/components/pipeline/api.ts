@@ -250,7 +250,7 @@ export const PARK_REASON: Record<string, string> = {
   setup_failed: "The repository could not install its dependencies",
   token_rate_limited: "Claude usage limit reached",
   token_auth_failed: "The Claude credential was rejected",
-  question_state_lost: "T3 restarted while the agent was waiting for an answer",
+  question_state_lost: "The agent session that asked the question is gone",
   dispatch_rejected: "T3 refused the command",
   t3_unreachable: "T3 could not be reached",
   unexpected_approval: "The agent asked for a permission it should not need",
