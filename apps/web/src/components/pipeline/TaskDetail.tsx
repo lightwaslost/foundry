@@ -90,7 +90,7 @@ export function TaskDetail({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="shrink-0 border-b border-border/50 px-4 py-3">
+      <header className="shrink-0 border-b border-border/50 py-3 pr-12 pl-4">
         <div className="flex items-start gap-2">
           <h2 className="min-w-0 flex-1 text-[15px] leading-snug font-semibold tracking-[-0.01em] text-foreground">
             {task.title}
