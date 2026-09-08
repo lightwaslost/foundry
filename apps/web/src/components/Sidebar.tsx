@@ -48,6 +48,7 @@ import {
   PinIcon,
   PinOffIcon,
   PlusIcon,
+  KanbanIcon,
   SearchIcon,
   SettingsIcon,
   SquarePenIcon,
@@ -4340,6 +4341,22 @@ export default function Sidebar() {
                 </Tooltip>
               </div>
             </div>
+            {/*
+              Foundry sits with the other ways of getting somewhere, not in the
+              utility row at the very bottom: the board is a place you go, several
+              times a day, the same way you go to a thread.
+            */}
+            <SidebarMenuButton
+              onClick={() => {
+                if (isMobile) setOpenMobile(false);
+                void router.navigate({ to: "/pipeline" });
+              }}
+              isActive={router.state.location.pathname.startsWith("/pipeline")}
+              className="ps-[calc(var(--sidebar-row-content-inset)-1px)] focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+            >
+              <KanbanIcon className="size-4 shrink-0" />
+              <span className="min-w-0 flex-1 truncate text-left">Pipeline</span>
+            </SidebarMenuButton>
             {projectGroups.length > 0 ? (
               <div className="flex items-center gap-1">
                 <Combobox
