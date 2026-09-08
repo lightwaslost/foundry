@@ -38,7 +38,9 @@ jobs:
           D=/usr/lib/node_modules/t3/dist
           rm -rf "$D/client.prev"; [ -d "$D/client" ] && mv "$D/client" "$D/client.prev"
           mv /tmp/t3-client-new "$D/client"
-          sudo systemctl restart t3
+          # No restart: t3 serves this directory from disk (verified), and restarting it
+          # destroys pending agent questions ("provider callback state does not survive
+          # app restarts"), killing in-flight pipeline stages mid-answer.
           echo swapped
           EOF
         shell: bash
@@ -51,9 +53,13 @@ jobs:
           ssh $SSHOPTS "$H" bash -s <<'EOF'
           set -e
           D=/usr/lib/node_modules/t3/dist
-          for i in $(seq 1 20); do curl -sf -o /dev/null http://172.17.0.1:4488/ && { echo healthy; exit 0; }; sleep 3; done
-          echo "t3 unhealthy — restoring previous client"
-          rm -rf "$D/client"; mv "$D/client.prev" "$D/client"; sudo systemctl restart t3
+          ASSET=$(grep -o '/assets/main-[A-Za-z0-9_-]*\.js' "$D/client/index.html" | head -1)
+          for i in $(seq 1 20); do
+            curl -sf -o /dev/null http://172.17.0.1:4488/ && curl -sf -o /dev/null "http://172.17.0.1:4488$ASSET" && { echo "healthy — serving $ASSET"; exit 0; }
+            sleep 3
+          done
+          echo "t3 not serving the new bundle — restoring previous client"
+          rm -rf "$D/client"; mv "$D/client.prev" "$D/client"
           exit 1
           EOF
         shell: bash
