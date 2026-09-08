@@ -471,9 +471,9 @@ function PipelinePage() {
                   </p>
                 </div>
               ) : (
-                <div className="flex gap-3">
+                <div className="flex gap-2.5">
                   {columns.map((col) => (
-                    <div key={col.key} className="min-w-[190px] flex-1 space-y-2">
+                    <div key={col.key} className="min-w-[142px] flex-1 space-y-2">
                       <div className="flex items-baseline gap-1.5 px-0.5">
                         <span className="text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
                           {col.key}
