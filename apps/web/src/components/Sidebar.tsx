@@ -202,6 +202,7 @@ import {
   shouldShowInstanceBadge,
   type ProviderInstanceEntry,
 } from "../providerInstances";
+import { AssigneeAvatar } from "./pipeline/AssigneeAvatar";
 import { useThreadRunningTerminalIds } from "../state/terminalSessions";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Button } from "./ui/button";
@@ -1582,6 +1583,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               />
             </span>
             {draftIndicator}
+            <AssigneeAvatar thread={thread} />
             {title}
             {pinIndicator}
             {terminalStatusIcon}
@@ -1895,6 +1897,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               ) : (
                 <span className="flex-1" />
               )}
+              <AssigneeAvatar thread={thread} className="size-3.5 text-[7px]" />
               {terminalStatusIcon}
               {prBadge}
               {diff ? (

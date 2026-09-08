@@ -49,6 +49,7 @@ import { NewTask } from "~/components/pipeline/NewTask";
 import { PipelineSettings } from "~/components/pipeline/PipelineSettings";
 import { Spine } from "~/components/pipeline/Spine";
 import { StateBadge } from "~/components/pipeline/StateBadge";
+import { GithubIdentity } from "~/components/pipeline/GithubIdentity";
 import { TaskDetail } from "~/components/pipeline/TaskDetail";
 
 /**
@@ -149,7 +150,7 @@ function AccountMenu({ me, onSignedOut }: { me: User; onSignedOut: () => void })
         {me.name}
       </Button>
       {open ? (
-        <div className="absolute right-0 z-50 mt-1 w-68 rounded-xl border border-border/60 bg-popover p-3 shadow-lg">
+        <div className="absolute right-0 z-50 mt-1 max-h-[70vh] w-76 overflow-y-auto rounded-xl border border-border/60 bg-popover p-3 shadow-lg">
           <p className="font-mono text-[11px] text-muted-foreground">{me.email}</p>
           <p className="mt-0.5 mb-2 text-[11px] text-muted-foreground">Signed in as {me.role}.</p>
           <div className="space-y-1.5">
@@ -178,10 +179,11 @@ function AccountMenu({ me, onSignedOut }: { me: User; onSignedOut: () => void })
           </div>
           {msg ? <p className="mt-2 text-[11px] text-success-foreground">{msg}</p> : null}
           {err ? <p className="mt-2 text-[11px] text-destructive-foreground">{err}</p> : null}
+          <GithubIdentity />
           <Button
             size="xs"
             variant="ghost-muted"
-            className="mt-2 w-full"
+            className="mt-3 w-full"
             onClick={() => void post("/api/auth/logout").then(onSignedOut)}
           >
             Sign out
