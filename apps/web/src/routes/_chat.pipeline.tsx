@@ -7,6 +7,7 @@ import {
   CircleDotIcon,
   ExternalLinkIcon,
   PencilIcon,
+  MessageCircleQuestionIcon,
   PlayIcon,
   RotateCwIcon,
   Undo2Icon,
@@ -20,7 +21,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
  * Data comes from the Foundry service (proxied same-origin under /foundry-api),
  * which owns tasks, stage runs, artifacts and gates. T3 owns the agent threads;
  * each stage run links to its thread here, so "open the thread" is one click.
- * Gate actions (approve / revise) land with Foundry's M4 endpoints.
+ * Gates, artifact versions and the agent's pre-flight questions are all answered here.
  */
 const API = "/foundry-api";
 
@@ -82,6 +83,21 @@ type ArtifactMeta = {
   author_id: string | null;
   kind: string;
   created_at: string;
+};
+type Question = {
+  id: string;
+  stage_run_id: string;
+  request_id: string;
+  batch: number;
+  header: string | null;
+  question: string;
+  options: Array<{ label: string; description?: string }>;
+  multi_select: boolean;
+  allow_custom: boolean;
+  response_mode: string | null;
+  answer: unknown | null;
+  answered_by: string | null;
+  source: "foundry" | "t3" | null;
 };
 type Detail = { runs: Run[]; gates: Gate[]; artifacts: ArtifactMeta[] };
 
@@ -376,6 +392,123 @@ function DiffView({
           </div>
         ))}
       </pre>
+    </div>
+  );
+}
+
+/**
+ * The agent's pre-flight questions for one stage run. T3 waits on the whole batch,
+ * so every open question is answered together; the run resumes as soon as they land.
+ * The same questions are answerable inside the T3 thread (phone included) — whichever
+ * happens first wins, and this panel disappears.
+ */
+function QuestionsPanel({ run, onAnswered }: { run: Run; onAnswered: () => void }) {
+  const [questions, setQuestions] = useState<Question[] | null>(null);
+  const [draft, setDraft] = useState<Record<string, string | string[]>>({});
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    const load = () =>
+      void call<{ questions: Question[] }>(`/api/runs/${run.id}/questions`).then((r) => {
+        if (live && !unauthorized(r)) setQuestions(r.questions);
+      });
+    load();
+    const t = setInterval(load, 4000);
+    return () => {
+      live = false;
+      clearInterval(t);
+    };
+  }, [run.id]);
+
+  const open = (questions ?? []).filter((q) => q.answer === null);
+  if (open.length === 0) return null;
+  const set = (q: Question, v: string) =>
+    setDraft((d) => {
+      if (!q.multi_select) return { ...d, [q.id]: v };
+      const cur = Array.isArray(d[q.id]) ? (d[q.id] as string[]) : [];
+      return { ...d, [q.id]: cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v] };
+    });
+  const chosen = (q: Question, label: string) => {
+    const v = draft[q.id];
+    return Array.isArray(v) ? v.includes(label) : v === label;
+  };
+  const ready = open.every((q) => {
+    const v = draft[q.id];
+    return Array.isArray(v) ? v.length > 0 : typeof v === "string" && v.trim().length > 0;
+  });
+  const submit = async () => {
+    setBusy(true);
+    setErr(null);
+    const r = await call<{ error?: string }>(`/api/runs/${run.id}/answers`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ answers: draft }),
+    });
+    setBusy(false);
+    if (unauthorized(r)) return;
+    if (r.error) {
+      setErr(r.error);
+      return;
+    }
+    setDraft({});
+    onAnswered();
+  };
+
+  return (
+    <div className="border-warning/32 bg-warning-surface mt-2 rounded-md border p-2.5">
+      <p className="text-warning-foreground mb-2 flex items-center gap-1.5 text-xs font-medium">
+        <MessageCircleQuestionIcon className="size-3.5" />
+        The agent needs {open.length === 1 ? "an answer" : `${open.length} answers`} before it
+        starts
+      </p>
+      <div className="space-y-3">
+        {open.map((q) => (
+          <div key={q.id}>
+            {q.header ? (
+              <p className="text-muted-foreground text-[10px] font-semibold tracking-[0.06em] uppercase">
+                {q.header}
+              </p>
+            ) : null}
+            <p className="text-foreground text-[13px]">{q.question}</p>
+            {q.options.length > 0 ? (
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {q.options.map((o) => (
+                  <button
+                    key={o.label}
+                    title={o.description}
+                    onClick={() => set(q, o.label)}
+                    className={`rounded-md border px-2 py-1 text-xs transition-colors ${chosen(q, o.label) ? "border-primary bg-primary/10 text-foreground" : "border-input bg-background text-muted-foreground hover:border-primary/50"}`}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {q.options.length === 0 || q.allow_custom || q.response_mode === "message" ? (
+              <input
+                value={typeof draft[q.id] === "string" ? (draft[q.id] as string) : ""}
+                onChange={(e) => setDraft((d) => ({ ...d, [q.id]: e.target.value }))}
+                placeholder={q.options.length === 0 ? "Your answer" : "…or type your own"}
+                className="border-input bg-background focus-visible:border-primary mt-1.5 h-8 w-full rounded-md border px-2 text-sm outline-none"
+              />
+            ) : null}
+            {q.multi_select ? (
+              <p className="text-muted-foreground mt-1 text-[10px]">Pick as many as apply.</p>
+            ) : null}
+          </div>
+        ))}
+      </div>
+      <div className="mt-2.5 flex items-center gap-2">
+        <Button size="xs" onClick={() => void submit()} disabled={busy || !ready}>
+          {busy ? <Spinner /> : null}Send answers
+        </Button>
+        <span className="text-muted-foreground text-[10px]">
+          or answer in the thread — same questions, works on your phone
+        </span>
+      </div>
+      {err ? <p className="text-destructive-foreground mt-2 text-xs">{err}</p> : null}
     </div>
   );
 }
@@ -799,6 +932,9 @@ function PipelinePage() {
                           </Button>
                         ) : null}
                       </div>
+                      {r.state === "awaiting_answers" ? (
+                        <QuestionsPanel run={r} onAnswered={() => void refresh()} />
+                      ) : null}
                       {gate && !gate.decided_at ? (
                         <GatePanel gate={gate} artifact={art} onDecided={() => void refresh()} />
                       ) : null}
