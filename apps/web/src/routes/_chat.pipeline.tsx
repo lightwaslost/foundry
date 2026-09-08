@@ -47,6 +47,7 @@ import { TaskCard } from "~/components/pipeline/TaskCard";
 import { AiraaLoader } from "~/components/pipeline/AiraaLoader";
 import { GithubIdentity } from "~/components/pipeline/GithubIdentity";
 import { PreviewPanelShell } from "~/components/preview/PreviewPanelShell";
+import { ServerMonitor } from "~/components/pipeline/ServerMonitor";
 import { TaskDetail } from "~/components/pipeline/TaskDetail";
 
 /**
@@ -57,7 +58,14 @@ import { TaskDetail } from "~/components/pipeline/TaskDetail";
  * waiting on a person. T3 owns the agent sessions; Foundry (proxied same-origin
  * under /foundry-api) owns tasks, runs, artifacts, questions and gates.
  */
-type Tab = "board" | "pipelines" | "docs";
+type Tab = "board" | "pipelines" | "docs" | "monitor";
+
+const TAB_LABEL: Record<Tab, string> = {
+  board: "Board",
+  pipelines: "Pipelines",
+  docs: "How it works",
+  monitor: "Server monitor",
+};
 
 function SignIn({ onDone }: { onDone: () => void }) {
   const [email, setEmail] = useState("");
@@ -381,9 +389,7 @@ function PipelinePage() {
         <WorkspaceBreadcrumb ariaLabel="Foundry">
           <WorkspaceBreadcrumbItem>Foundry</WorkspaceBreadcrumbItem>
           <WorkspaceBreadcrumbSeparator />
-          <WorkspaceBreadcrumbItem>
-            {tab === "board" ? "Board" : tab === "pipelines" ? "Pipelines" : "How it works"}
-          </WorkspaceBreadcrumbItem>
+          <WorkspaceBreadcrumbItem>{TAB_LABEL[tab]}</WorkspaceBreadcrumbItem>
         </WorkspaceBreadcrumb>
 
         <div className="ml-auto flex items-center gap-1.5">
@@ -403,14 +409,14 @@ function PipelinePage() {
             </Button>
           ) : null}
           <div className="flex items-center rounded-lg border border-border/60 p-0.5">
-            {(["board", "pipelines", "docs"] as const).map((t) => (
+            {(["board", "pipelines", "docs", "monitor"] as const).map((t) => (
               <Button
                 key={t}
                 size="xs"
                 variant={tab === t ? "secondary" : "ghost-muted"}
                 onClick={() => setTab(t)}
               >
-                {t === "board" ? "Board" : t === "pipelines" ? "Pipelines" : "How it works"}
+                {TAB_LABEL[t]}
               </Button>
             ))}
           </div>
@@ -606,6 +612,8 @@ function PipelinePage() {
             </PreviewPanelShell>
           ) : null}
         </div>
+      ) : tab === "monitor" ? (
+        <ServerMonitor />
       ) : (
         <div className="min-h-0 flex-1 overflow-auto">
           <WorkspacePageContainer width="wide">
