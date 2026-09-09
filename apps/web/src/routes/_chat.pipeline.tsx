@@ -310,7 +310,11 @@ function PipelinePage() {
     if (!unauthorized(d)) setDrafts(d.drafts);
     if (!unauthorized(p)) {
       setCatalogue({
-        stages: p.stages,
+        // An older backend answers /api/stages with a 404 body, not a catalogue.
+        // Guarded here rather than at each reader: the board, the New Task ticks
+        // and the Stages tab all map over this, and one of them white-screened
+        // production when the two repos deployed out of step.
+        stages: Array.isArray(p.stages) ? p.stages : [],
         version: p.version,
         updated_by: p.updated_by,
         updated_at: p.updated_at,
