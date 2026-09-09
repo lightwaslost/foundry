@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BellIcon, MessageSquareIcon, PlusIcon, SearchIcon, XIcon } from "lucide-react";
 
@@ -33,7 +33,6 @@ import {
   NEEDS_HUMAN,
   patch,
   post,
-  threadPath,
   toneOf,
   unauthorized,
   type Detail,
@@ -222,6 +221,15 @@ function PipelinePage() {
   // the agent's proposal IS the submit, so there is nothing to confirm here.
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [envId, setEnvId] = useState<string | null>(null);
+  // Router navigation rather than a hand-built URL: the path is checked against the
+  // generated route tree, so a wrong one is a compile error rather than a 404 page —
+  // which is how it was wrong twice. It is also a client-side move, so no full reload
+  // can hand you a stale bundle in the middle of the handoff.
+  const navigate = useNavigate();
+  const goToThread = (threadId: string | null | undefined) => {
+    if (!envId || !threadId) return;
+    void navigate({ to: "/$environmentId/$threadId", params: { environmentId: envId, threadId } });
+  };
   const [now, setNow] = useState(() => Date.now());
   const [query, setQuery] = useState("");
   const [filterAssignee, setFilterAssignee] = useState<string | null>(null);
@@ -241,8 +249,7 @@ function PipelinePage() {
   const openDraft = async (id: string) => {
     const r = await call<DraftView>(`/api/drafts/${id}`);
     if (unauthorized(r)) return;
-    const href = threadPath(envId, r.draft.thread_id);
-    if (href) window.location.href = href;
+    goToThread(r.draft.thread_id);
   };
 
   const selRef = useRef<string | null>(null);
@@ -733,8 +740,7 @@ function PipelinePage() {
                 return started.error ?? "could not open the conversation";
               composerDirty.current = false;
               closeComposer();
-              const href = threadPath(envId, started.draft.thread_id);
-              if (href) window.location.href = href;
+              goToThread(started.draft.thread_id);
               return null;
             }}
             pipelines={pipelines}
