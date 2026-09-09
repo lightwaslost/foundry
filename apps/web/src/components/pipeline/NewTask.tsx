@@ -12,7 +12,7 @@ import {
 } from "~/components/ui/select";
 import { Spinner } from "~/components/ui/spinner";
 import { Textarea } from "~/components/ui/textarea";
-import { CheckIcon, ChevronRightIcon, PlusIcon } from "lucide-react";
+import { CheckIcon, ChevronRightIcon, PaperclipIcon, PlusIcon, XIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 import {
   post,
@@ -91,8 +91,16 @@ export function NewTask({
    * creating posts to the draft, so its document and its files come across too.
    */
   draft?: { draft: Draft; proposal: Proposal } | null;
-  /** Talk it through instead of typing it. Absent while confirming a draft. */
-  onTalk?: (title: string, repoId: string, assigneeId: string | null) => Promise<string | null>;
+  /**
+   * Talk it through instead of typing it. Absent while confirming a draft. Files
+   * go up before the conversation opens, so the agent has them on its first turn.
+   */
+  onTalk?: (
+    title: string,
+    repoId: string,
+    assigneeId: string | null,
+    files: File[],
+  ) => Promise<string | null>;
   onCreated: (id: string) => void;
   onCancel: () => void;
   /** So the dialog's own dismissals can ask before throwing away typed work. */
@@ -112,6 +120,9 @@ export function NewTask({
   // pipeline is only which catalogue they came from.
   const [choosing, setChoosing] = useState(false);
   const [busy, setBusy] = useState<"create" | "talk" | null>(null);
+  // Held here until the draft exists to hang them on.
+  const [files, setFiles] = useState<File[]>([]);
+  const filePicker = useRef<HTMLInputElement>(null);
   const [err, setErr] = useState<string | null>(null);
 
   const cloned = useMemo(() => repos.filter((r) => r.clone_state === "cloned"), [repos]);
@@ -207,7 +218,7 @@ export function NewTask({
     if (!onTalk || !title.trim() || !repo) return;
     setBusy("talk");
     setErr(null);
-    const failure = await onTalk(title, repo, assignee || null);
+    const failure = await onTalk(title, repo, assignee || null, files);
     setBusy(null);
     if (failure) setErr(failure);
   };
@@ -221,6 +232,7 @@ export function NewTask({
     title.trim().length > 0 ||
     description.trim().length > 0 ||
     tweaked.length > 0 ||
+    files.length > 0 ||
     extras.length > 0 ||
     skipped.length > 0;
   useEffect(() => {
@@ -268,6 +280,59 @@ export function NewTask({
               onChange={(e) => setDescription(e.target.value)}
             />
           </div>
+
+          {onTalk && !draft ? (
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2">
+                <Label>Files</Label>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                  onClick={() => filePicker.current?.click()}
+                >
+                  <PaperclipIcon aria-hidden className="size-3" />
+                  attach
+                </button>
+              </div>
+              <input
+                ref={filePicker}
+                type="file"
+                multiple
+                className="hidden"
+                accept="image/png,image/jpeg,image/gif,image/webp,application/pdf"
+                onChange={(e) => {
+                  const picked = [...(e.currentTarget.files ?? [])];
+                  e.currentTarget.value = "";
+                  setFiles((prev) => [...prev, ...picked]);
+                }}
+              />
+              {files.length ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {files.map((f, i) => (
+                    <span
+                      key={`${f.name}-${i}`}
+                      className="inline-flex items-center gap-1 rounded-md border border-border/60 px-2 py-1 font-mono text-[11px] text-muted-foreground"
+                    >
+                      {f.name}
+                      <button
+                        type="button"
+                        aria-label={`Remove ${f.name}`}
+                        onClick={() => setFiles((prev) => prev.filter((_, n) => n !== i))}
+                        className="hover:text-foreground"
+                      >
+                        <XIcon aria-hidden className="size-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[11px] text-muted-foreground">
+                  Images and PDFs. The agent reads them from its first turn, and they stay on the
+                  task.
+                </p>
+              )}
+            </div>
+          ) : null}
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">

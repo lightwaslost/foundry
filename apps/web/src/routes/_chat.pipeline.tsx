@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BellIcon, PlusIcon, SearchIcon, XIcon } from "lucide-react";
+import { BellIcon, MessageSquareIcon, PlusIcon, SearchIcon, XIcon } from "lucide-react";
 
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
@@ -37,6 +37,7 @@ import {
   unauthorized,
   type Detail,
   type Draft,
+  type DraftView,
   type PipelineDef,
   type Proposal,
   type Repo,
@@ -44,7 +45,6 @@ import {
   type User,
 } from "~/components/pipeline/api";
 import { Docs } from "~/components/pipeline/Docs";
-import { DraftChat } from "~/components/pipeline/DraftChat";
 import { NewTask } from "~/components/pipeline/NewTask";
 import { PipelineSettings } from "~/components/pipeline/PipelineSettings";
 import { TaskCard } from "~/components/pipeline/TaskCard";
@@ -218,9 +218,10 @@ function PipelinePage() {
   const [selected, setSelected] = useState<string | null>(null);
   const [maximized, setMaximized] = useState(false);
   const [composing, setComposing] = useState(false);
-  // The composer has three faces: the form, the conversation it can hand off to,
-  // and the same form again holding what that conversation proposed.
-  const [talking, setTalking] = useState<string | null>(null);
+  // The composer has two faces: the form, and the same form again holding what a
+  // conversation proposed. The conversation itself happens in T3's own thread
+  // view, which renders it far better than anything repeated here.
+  const [drafts, setDrafts] = useState<Draft[]>([]);
   const [confirming, setConfirming] = useState<{ draft: Draft; proposal: Proposal } | null>(null);
   const [envId, setEnvId] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -235,9 +236,24 @@ function PipelinePage() {
   /** One way out of the composer, whichever of its three faces you were looking at. */
   const closeComposer = () => {
     composerDirty.current = false;
-    setTalking(null);
     setConfirming(null);
     setComposing(false);
+  };
+
+  /**
+   * Reopen a draft. If the agent has proposed something, the confirm pane opens on
+   * it; if it is still talking there is nothing here worth showing, so this goes to
+   * the thread — which is where the conversation lives.
+   */
+  const openDraft = async (id: string) => {
+    const r = await call<DraftView>(`/api/drafts/${id}`);
+    if (unauthorized(r)) return;
+    if (r.proposal) {
+      setConfirming({ draft: r.draft, proposal: r.proposal });
+      setComposing(true);
+      return;
+    }
+    if (envId && r.draft.thread_id) window.location.href = `/${envId}/thread/${r.draft.thread_id}`;
   };
   const selRef = useRef<string | null>(null);
   selRef.current = selected;
@@ -281,13 +297,15 @@ function PipelinePage() {
     }
     setNeedsAuth(false);
     setMe(meRes.user);
-    const [p, r, u, t, m] = await Promise.all([
+    const [p, r, u, t, m, d] = await Promise.all([
       call<{ pipelines: PipelineDef[]; skills: string[] }>("/api/pipelines"),
       call<{ repos: Repo[] }>("/api/repos"),
       call<{ users: User[] }>("/api/users"),
       call<{ tasks: Task[] }>("/api/tasks"),
       call<{ models: string[] }>("/api/models"),
+      call<{ drafts: Draft[] }>("/api/drafts"),
     ]);
+    if (!unauthorized(d)) setDrafts(d.drafts);
     if (!unauthorized(p)) {
       setPipelines(p.pipelines);
       setSkills(p.skills ?? []);
@@ -462,6 +480,38 @@ function PipelinePage() {
               <Button size="sm" onClick={() => setComposing((v) => !v)}>
                 <PlusIcon /> New task
               </Button>
+              {/* Conversations that have not become tasks yet. Nothing else on the
+                  board points at them, so a draft you navigated away from would
+                  otherwise be findable only by its thread URL. */}
+              {drafts.map((d) => (
+                <span
+                  key={d.id}
+                  className="inline-flex max-w-64 items-center gap-1 rounded-md border border-dashed border-border/70 pr-1 text-[12px] text-muted-foreground"
+                >
+                  <button
+                    type="button"
+                    onClick={() => void openDraft(d.id)}
+                    title="Draft — open the conversation, or confirm what it proposed"
+                    className="inline-flex min-w-0 items-center gap-1.5 rounded-l-md py-1 pl-2 hover:text-foreground"
+                  >
+                    <MessageSquareIcon aria-hidden className="size-3.5 shrink-0" />
+                    <span className="truncate">{d.title}</span>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Discard draft ${d.title}`}
+                    title="Discard — a draft holds no ticket and no branch"
+                    onClick={() => {
+                      if (!window.confirm(`Discard "${d.title}"? The conversation goes with it.`))
+                        return;
+                      void del(`/api/drafts/${d.id}`).then(() => refresh());
+                    }}
+                    className="shrink-0 rounded p-0.5 hover:text-foreground"
+                  >
+                    <XIcon aria-hidden className="size-3" />
+                  </button>
+                </span>
+              ))}
               <div className="relative">
                 <SearchIcon className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -655,7 +705,7 @@ function PipelinePage() {
           // owns the "you have typed something" question, so ask it once, here.
           if (
             !open &&
-            (composerDirty.current || talking !== null) &&
+            composerDirty.current &&
             !window.confirm("Discard this task? What you have typed will be lost.")
           )
             return;
@@ -664,51 +714,56 @@ function PipelinePage() {
         }}
       >
         <DialogPopup className="max-w-4xl p-0" aria-label="New task">
-          {talking && !confirming ? (
-            <DraftChat
-              draftId={talking}
-              envId={envId}
-              onPropose={(view, proposal) => setConfirming({ draft: view.draft, proposal })}
-              onCancel={() => {
-                // Abandoning the conversation throws the draft away: it holds no
-                // ticket and no branch, so there is nothing to keep.
-                void del(`/api/drafts/${talking}`);
-                closeComposer();
-              }}
-            />
-          ) : (
-            <NewTask
-              key={confirming?.draft.id ?? "blank"}
-              draft={confirming}
-              onTalk={async (title, repoId, assigneeId) => {
-                const r = await post<{ draft?: Draft; error?: string }>("/api/drafts", {
-                  title,
-                  repo_id: repoId,
-                  assignee_id: assigneeId,
+          <NewTask
+            key={confirming?.draft.id ?? "blank"}
+            draft={confirming}
+            onTalk={async (title, repoId, assigneeId, files) => {
+              const r = await post<{ draft?: Draft; error?: string }>("/api/drafts", {
+                title,
+                repo_id: repoId,
+                assignee_id: assigneeId,
+              });
+              if (unauthorized(r)) return "your session expired — sign in again";
+              if (r.error || !r.draft) return r.error ?? "could not start the conversation";
+              const id = r.draft.id;
+              // Files go up before the thread opens, so the agent has them on turn one.
+              for (const f of files) {
+                const bytes = new Uint8Array(await f.arrayBuffer());
+                let bin = "";
+                for (const b of bytes) bin += String.fromCharCode(b);
+                const up = await post<{ error?: string }>(`/api/drafts/${id}/attachments`, {
+                  filename: f.name,
+                  data_base64: btoa(bin),
                 });
-                if (unauthorized(r)) return "your session expired — sign in again";
-                if (r.error || !r.draft) return r.error ?? "could not start the conversation";
-                composerDirty.current = false;
-                setTalking(r.draft.id);
-                return null;
-              }}
-              pipelines={pipelines}
-              repos={repos}
-              users={users}
-              skills={skills}
-              models={models}
-              me={me}
-              onDirtyChange={(d) => {
-                composerDirty.current = d;
-              }}
-              onCancel={closeComposer}
-              onCreated={(id) => {
-                closeComposer();
-                setSelected(id);
-                void refresh();
-              }}
-            />
-          )}
+                if (!unauthorized(up) && up.error) return `${f.name}: ${up.error}`;
+              }
+              const started = await post<{ draft?: Draft; error?: string }>(
+                `/api/drafts/${id}/start`,
+              );
+              if (unauthorized(started)) return "your session expired — sign in again";
+              if (started.error || !started.draft?.thread_id)
+                return started.error ?? "could not open the conversation";
+              composerDirty.current = false;
+              closeComposer();
+              if (envId) window.location.href = `/${envId}/thread/${started.draft.thread_id}`;
+              return null;
+            }}
+            pipelines={pipelines}
+            repos={repos}
+            users={users}
+            skills={skills}
+            models={models}
+            me={me}
+            onDirtyChange={(d) => {
+              composerDirty.current = d;
+            }}
+            onCancel={closeComposer}
+            onCreated={(id) => {
+              closeComposer();
+              setSelected(id);
+              void refresh();
+            }}
+          />
         </DialogPopup>
       </Dialog>
     </SidebarInset>
