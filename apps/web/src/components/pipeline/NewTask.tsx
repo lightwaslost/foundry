@@ -17,14 +17,13 @@ import { cn } from "~/lib/utils";
 import {
   post,
   unauthorized,
-  type PipelineDef,
+  type Catalogue,
   type Repo,
   type StageDef,
-  type StageOverride,
   type Task,
   type User,
 } from "./api";
-import { StageFields, stageSummary } from "./StageFields";
+import { stageSummary } from "./StageFields";
 
 /**
  * What the server's `selectStages` will leave each kept stage reading. Display
@@ -44,18 +43,6 @@ function resolveInputs(stages: StageDef[], skipped: string[]): Map<string, strin
 }
 
 /**
- * The pipeline to start from: the one with the most stages, because the stage list
- * is now something you subtract from and a shorter pipeline would simply hide the
- * stages it lacks. Used for the initial value AND the fallback when the pipeline
- * list arrives late — if those two disagree, the effect silently wins.
- */
-function fullest(pipelines: PipelineDef[]): string {
-  let best: PipelineDef | undefined;
-  for (const p of pipelines) if (!best || p.stages.length > best.stages.length) best = p;
-  return best?.name ?? "feature";
-}
-
-/**
  * Starting work. Two panes: on the left what you want, on the right which
  * stages will do it. The stage list is deliberately not folded away — picking
  * "just a mockup", or "I have the spec, only build it", is the point of the
@@ -65,22 +52,18 @@ function fullest(pipelines: PipelineDef[]): string {
  * it without having to know the new pipeline's stage names.
  */
 export function NewTask({
-  pipelines,
+  catalogue,
   repos,
   users,
-  skills,
-  models,
   me,
   onTalk,
   onCreated,
   onCancel,
   onDirtyChange,
 }: {
-  pipelines: PipelineDef[];
+  catalogue: Catalogue;
   repos: Repo[];
   users: User[];
-  skills: string[];
-  models: string[];
   me: User | null;
   /**
    * Talk it through instead of typing it. Files go up before the conversation
@@ -99,17 +82,11 @@ export function NewTask({
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [pipelineName, setPipelineName] = useState(() => fullest(pipelines));
   const [repo, setRepo] = useState("");
   // Repositories beyond the primary that this task is allowed to change.
   const [extras, setExtras] = useState<string[]>([]);
   const [assignee, setAssignee] = useState(me?.id ?? "");
-  const [overrides, setOverrides] = useState<Record<string, StageOverride>>({});
   const [skipped, setSkipped] = useState<string[]>([]);
-  const [openStage, setOpenStage] = useState<string | null>(null);
-  // Picking a pipeline is now the rare case: the stages are the decision, and the
-  // pipeline is only which catalogue they came from.
-  const [choosing, setChoosing] = useState(false);
   const [busy, setBusy] = useState<"create" | "talk" | null>(null);
   // Held here until the draft exists to hang them on.
   const [files, setFiles] = useState<File[]>([]);
@@ -122,10 +99,6 @@ export function NewTask({
   useEffect(() => {
     if (!repo && cloned[0]) setRepo(cloned[0].id);
   }, [cloned, repo]);
-  useEffect(() => {
-    if (!pipelines.some((p) => p.name === pipelineName) && pipelines.length)
-      setPipelineName(fullest(pipelines));
-  }, [pipelines, pipelineName]);
 
   // Whichever repository leads is never also an "also change" — picking it there
   // would ask the backend for the same repo twice.
@@ -133,17 +106,9 @@ export function NewTask({
     setExtras((prev) => prev.filter((id) => id !== repo));
   }, [repo]);
 
-  const pipeline = pipelines.find((p) => p.name === pipelineName);
-  // Stage tweaks and the selection both belong to the pipeline they were made
-  // against, so changing pipeline starts over with every stage switched on.
-  const stages = pipeline?.stages ?? [];
-  // Stage tweaks and the selection both belong to the pipeline they were made
-  // against, so changing pipeline starts over with every stage switched on.
-  useEffect(() => {
-    setOverrides({});
-    setOpenStage(null);
-    setSkipped([]);
-  }, [pipelineName]);
+  // How each stage behaves is settled in the Stages tab, for every task. All this
+  // dialog decides is which of them run.
+  const stages = catalogue.stages;
 
   const kept = stages.filter((s) => !skipped.includes(s.name));
   const resolved = resolveInputs(stages, skipped);
@@ -167,13 +132,11 @@ export function NewTask({
       description,
       ...(extras.length ? { extra_repo_ids: extras } : {}),
       assignee_id: assignee || null,
-      ...(Object.keys(overrides).length ? { stage_overrides: overrides } : {}),
     };
     const r = await post<{ task?: Task; error?: string }>("/api/tasks", {
       ...common,
-      pipeline: pipelineName,
       repo_id: repo,
-      // Sent only when it is not the whole pipeline, so an untouched dialog posts
+      // Sent only when it is not the whole catalogue, so an untouched dialog posts
       // exactly the body it always did.
       ...(skipped.length ? { stages: kept.map((st) => st.name) } : {}),
     });
@@ -182,7 +145,6 @@ export function NewTask({
     if (r.error) return setErr(r.error);
     setTitle("");
     setDescription("");
-    setOverrides({});
     setExtras([]);
     onCreated(r.task!.id);
   };
@@ -197,15 +159,11 @@ export function NewTask({
     if (failure) setErr(failure);
   };
 
-  const tweaked = Object.entries(overrides)
-    .filter(([, v]) => Object.keys(v).length > 0)
-    .map(([k]) => k);
   // Losing a half-written ticket to a stray Escape is a small betrayal people
   // remember, so leaving with something typed asks first — here and in the dialog.
   const dirty =
     title.trim().length > 0 ||
     description.trim().length > 0 ||
-    tweaked.length > 0 ||
     files.length > 0 ||
     extras.length > 0 ||
     skipped.length > 0;
@@ -400,42 +358,16 @@ export function NewTask({
 
         {/* Right — the pipeline. */}
         <div className="space-y-2 sm:border-l sm:border-border/50 sm:pl-4">
-          <div className="space-y-1.5">
-            {pipelines.length > 1 && !choosing ? (
-              <div className="flex items-center gap-2">
-                <Label>Stages</Label>
-                <button
-                  type="button"
-                  onClick={() => setChoosing(true)}
-                  className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-                >
-                  from {pipelineName} — use another
-                </button>
-              </div>
-            ) : (
-              <>
-                <Label>Pipeline</Label>
-                <Select value={pipelineName} onValueChange={(v) => setPipelineName(String(v))}>
-                  <SelectTrigger size="sm" aria-label="Pipeline">
-                    <SelectValue>{pipelineName}</SelectValue>
-                  </SelectTrigger>
-                  <SelectPopup alignItemWithTrigger={false}>
-                    {pipelines.map((p) => (
-                      <SelectItem key={p.name} value={p.name}>
-                        {p.name} · {p.stages.length} stage{p.stages.length === 1 ? "" : "s"}
-                      </SelectItem>
-                    ))}
-                  </SelectPopup>
-                </Select>
-              </>
-            )}
+          <div className="flex items-baseline gap-2">
+            <Label>Stages</Label>
+            <span className="text-[11px] text-muted-foreground">
+              what each one does is set in Stages
+            </span>
           </div>
 
           <div className="overflow-hidden rounded-lg border border-border/60">
             {stages.map((s) => {
               const on = !skipped.includes(s.name);
-              const open = openStage === s.name;
-              const o = overrides[s.name] ?? {};
               const reads = resolved.get(s.name);
               return (
                 <div key={s.name} className="border-b border-border/50 last:border-b-0">
@@ -462,46 +394,10 @@ export function NewTask({
                             : (s.output.file ?? "pull request")}
                       </div>
                     </div>
-                    {Object.keys(o).length ? (
-                      <span className="shrink-0 rounded-sm bg-primary/12 px-1.5 py-0.5 text-[10px] text-foreground">
-                        changed
-                      </span>
-                    ) : null}
-                    <button
-                      type="button"
-                      aria-label={`Adjust ${s.name}`}
-                      aria-expanded={open}
-                      disabled={!on}
-                      onClick={() => setOpenStage(open ? null : s.name)}
-                      className="shrink-0 rounded p-1 text-muted-foreground hover:text-foreground disabled:opacity-40"
-                    >
-                      <ChevronRightIcon
-                        className={cn("size-3.5 transition-transform", open && "rotate-90")}
-                      />
-                    </button>
+                    <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                      {stageSummary(s)}
+                    </span>
                   </div>
-                  {open && on ? (
-                    <div className="border-t border-border/50 px-2.5 pt-2 pb-3">
-                      <p className="pb-2 font-mono text-[11px] text-muted-foreground">
-                        {stageSummary(s, o)}
-                      </p>
-                      <StageFields
-                        base={s}
-                        value={o}
-                        skills={skills}
-                        models={models}
-                        compact
-                        onChange={(next) =>
-                          setOverrides((prev) => {
-                            const copy = { ...prev };
-                            if (Object.keys(next).length === 0) delete copy[s.name];
-                            else copy[s.name] = next;
-                            return copy;
-                          })
-                        }
-                      />
-                    </div>
-                  ) : null}
                 </div>
               );
             })}

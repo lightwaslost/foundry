@@ -38,14 +38,14 @@ import {
   type Detail,
   type Draft,
   type DraftView,
-  type PipelineDef,
+  type Catalogue,
   type Repo,
   type Task,
   type User,
 } from "~/components/pipeline/api";
 import { Docs } from "~/components/pipeline/Docs";
 import { NewTask } from "~/components/pipeline/NewTask";
-import { PipelineSettings } from "~/components/pipeline/PipelineSettings";
+import { StageManager } from "~/components/pipeline/StageManager";
 import { TaskCard } from "~/components/pipeline/TaskCard";
 import { AiraaLoader } from "~/components/pipeline/AiraaLoader";
 import { GithubIdentity } from "~/components/pipeline/GithubIdentity";
@@ -61,11 +61,11 @@ import { TaskDetail } from "~/components/pipeline/TaskDetail";
  * waiting on a person. T3 owns the agent sessions; Foundry (proxied same-origin
  * under /foundry-api) owns tasks, runs, artifacts, questions and gates.
  */
-type Tab = "board" | "pipelines" | "docs" | "monitor";
+type Tab = "board" | "stages" | "docs" | "monitor";
 
 const TAB_LABEL: Record<Tab, string> = {
   board: "Board",
-  pipelines: "Pipelines",
+  stages: "Stages",
   docs: "How it works",
   monitor: "Server monitor",
 };
@@ -207,7 +207,12 @@ function PipelinePage() {
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState<Tab>("board");
   const [me, setMe] = useState<User | null>(null);
-  const [pipelines, setPipelines] = useState<PipelineDef[]>([]);
+  const [catalogue, setCatalogue] = useState<Catalogue>({
+    stages: [],
+    version: 0,
+    updated_by: null,
+    updated_at: null,
+  });
   const [skills, setSkills] = useState<string[]>([]);
   const [models, setModels] = useState<string[]>([]);
   const [repos, setRepos] = useState<Repo[]>([]);
@@ -295,7 +300,7 @@ function PipelinePage() {
     setNeedsAuth(false);
     setMe(meRes.user);
     const [p, r, u, t, m, d] = await Promise.all([
-      call<{ pipelines: PipelineDef[]; skills: string[] }>("/api/pipelines"),
+      call<Catalogue & { skills: string[] }>("/api/stages"),
       call<{ repos: Repo[] }>("/api/repos"),
       call<{ users: User[] }>("/api/users"),
       call<{ tasks: Task[] }>("/api/tasks"),
@@ -304,7 +309,12 @@ function PipelinePage() {
     ]);
     if (!unauthorized(d)) setDrafts(d.drafts);
     if (!unauthorized(p)) {
-      setPipelines(p.pipelines);
+      setCatalogue({
+        stages: p.stages,
+        version: p.version,
+        updated_by: p.updated_by,
+        updated_at: p.updated_at,
+      });
       setSkills(p.skills ?? []);
     }
     if (!unauthorized(r)) setRepos(r.repos);
@@ -376,13 +386,7 @@ function PipelinePage() {
     [tasks, refresh],
   );
 
-  const stageNames = useMemo(() => {
-    const longest = pipelines.reduce<PipelineDef | null>(
-      (acc, p) => (!acc || p.stages.length > acc.stages.length ? p : acc),
-      null,
-    );
-    return longest?.stages.map((s) => s.name) ?? ["one-pager", "mockup", "prd", "build"];
-  }, [pipelines]);
+  const stageNames = useMemo(() => catalogue.stages.map((s) => s.name), [catalogue.stages]);
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -439,7 +443,7 @@ function PipelinePage() {
             </Button>
           ) : null}
           <div className="flex items-center rounded-lg border border-border/60 p-0.5">
-            {(["board", "pipelines", "docs", "monitor"] as const).map((t) => (
+            {(["board", "stages", "docs", "monitor"] as const).map((t) => (
               <Button
                 key={t}
                 size="xs"
@@ -681,9 +685,9 @@ function PipelinePage() {
       ) : (
         <div className="min-h-0 flex-1 overflow-auto">
           <WorkspacePageContainer width="wide">
-            {tab === "pipelines" ? (
-              <PipelineSettings
-                pipelines={pipelines}
+            {tab === "stages" ? (
+              <StageManager
+                catalogue={catalogue}
                 skills={skills}
                 models={models}
                 users={users}
@@ -745,11 +749,9 @@ function PipelinePage() {
               goToThread(started.draft.thread_id);
               return null;
             }}
-            pipelines={pipelines}
+            catalogue={catalogue}
             repos={repos}
             users={users}
-            skills={skills}
-            models={models}
             me={me}
             onDirtyChange={(d) => {
               composerDirty.current = d;

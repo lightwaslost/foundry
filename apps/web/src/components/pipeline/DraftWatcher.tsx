@@ -42,12 +42,17 @@ export function DraftWatcher() {
         seen.delete(d.id);
 
         const done = d.task_state === "done";
+        // The conversation WAS the one-pager, so say that it landed — and say
+        // where the task is now waiting, because the next thing you do is go to
+        // the board and start that stage.
         toastManager.add({
           type: "success",
           title: `${d.ticket} created`,
           description: done
-            ? "Written and done — the conversation produced everything it asked for."
-            : "Ready to start on the board.",
+            ? "One-pager written. Nothing else was asked for, so the task is done."
+            : d.task_stage
+              ? `One-pager written. Waiting at ${d.task_stage} — open the board to start it.`
+              : "One-pager written. Open the board to start it.",
           actionProps: {
             children: done ? "Read it" : "Open it",
             // The board has no search params, so this opens it rather than the

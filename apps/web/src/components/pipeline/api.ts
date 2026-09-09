@@ -50,13 +50,23 @@ export interface StageDef {
   questions: boolean;
   tests: "required" | null;
 }
-export interface PipelineDef {
-  name: string;
-  description: string | null;
-  source: "file" | "edited";
+/**
+ * The one catalogue of stages, versioned. There used to be three pipelines; two
+ * of them were subsets of the third, so "which pipeline" became "which stages" —
+ * a per-task choice — and what a stage does became one shared setting.
+ */
+export interface Catalogue {
+  stages: StageDef[];
+  version: number;
   updated_by: string | null;
   updated_at: string | null;
-  stages: StageDef[];
+}
+
+export interface CatalogueVersion {
+  version: number;
+  note: string | null;
+  updated_by: string | null;
+  updated_at: string;
 }
 export interface Repo {
   id: string;
@@ -198,6 +208,8 @@ export interface Draft {
   /** The task it became, once it has. Null while it is still a conversation. */
   ticket: string | null;
   task_state: string | null;
+  /** Where that task is waiting — the stage after the one the conversation wrote. */
+  task_stage: string | null;
 }
 
 /** What the agent hands back once it has enough. Shaped like the create body. */
