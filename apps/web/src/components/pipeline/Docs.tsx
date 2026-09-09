@@ -71,22 +71,22 @@ const SPIKE = [stageDef("one-pager", "one-pager.md", "auto", 20)];
 
 const PIPELINES: Array<{ name: string; stages: SnapshotStage[]; blurb: string }> = [
   {
-    name: "feature",
+    name: "the lot",
     stages: FEATURE,
     blurb:
       "A product surface that does not exist yet. Starts with a conversation about what you actually want, and every document is reviewed before the next one is written.",
   },
   {
-    name: "bugfix",
+    name: "a bug fix",
     stages: BUGFIX,
     blurb:
-      "Known problem, known place. No one-pager and no mockup — straight to a technical PRD, the fix, and a second agent reading the diff against the spec.",
+      "Known problem, known place. Untick the one-pager and the mockup — straight to a technical PRD, the fix, and a second agent reading the diff against the spec.",
   },
   {
-    name: "spike",
+    name: "just the thinking",
     stages: SPIKE,
     blurb:
-      "You only want the thinking written down. One document, no gate, nothing built. Use it to decide whether the work is worth a feature run at all.",
+      "You only want it written down. One stage, nothing built. Use it to decide whether the work is worth a full run at all.",
   },
 ];
 
@@ -385,7 +385,8 @@ export function Docs() {
               carries the order, so the arrows between them were decoration. */}
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
             <Step icon={<TicketIcon />} title="1 · A ticket">
-              You describe the work and pick a pipeline. Nothing runs until you press Start.
+              You describe the work and tick the stages it needs. Nothing runs until you press
+              Start.
             </Step>
             <Step icon={<GitBranchIcon />} title="2 · A branch">
               One branch per ticket, <Term>foundry/&lt;ticket&gt;</Term>, with the same name in
@@ -418,8 +419,8 @@ export function Docs() {
         <Section id="board" title="The board">
           <p>
             Columns are stages; a card sits in the column it is currently in. The three-part line
-            across each card is its <Strong>spine</Strong> — one segment per stage of that task's
-            pipeline, filled for finished work, lit for where it is now, amber when it is stopped on
+            across each card is its <Strong>spine</Strong> — one segment per stage that task is
+            running, filled for finished work, lit for where it is now, amber when it is stopped on
             a person. Hover any segment to see which stage it is.
           </p>
 
@@ -473,11 +474,14 @@ export function Docs() {
             what you have already ruled out. Under-describing a task does not fail — it means the
             agent asks you more before it starts.
           </p>
-          <p>Pick the pipeline that matches the work. The choice is frozen into the task:</p>
+          <p>
+            Then tick the stages it should go through. There is one ordered list of stages and every
+            task is a subset of it — these are the shapes that come up most:
+          </p>
 
           <Demo
             className="space-y-3.5"
-            caption="Each spine is the real board component, drawn from that pipeline's actual stages."
+            caption="Each spine is the real board component, drawn from that selection's actual stages."
           >
             {PIPELINES.map((p) => (
               <div key={p.name} className="space-y-1.5">
@@ -510,10 +514,11 @@ export function Docs() {
 
           <Internals>
             <p>
-              The pipeline is copied into the task as a <Term>pipeline_snapshot</Term> at creation.
-              Editing a pipeline later never disturbs anything in flight — a task runs the stages it
-              started with, for its whole life. Stages marked <Term>·auto</Term> have no human gate:
-              they hand straight to the next stage.
+              The selection is frozen into the task as a <Term>pipeline_snapshot</Term> at creation,
+              along with what each stage reads: drop the mockup and the PRD stops asking for{" "}
+              <Term>mockup.html</Term> rather than waiting for a file nobody will write. What a
+              stage <em>does</em> is not frozen — see <Strong>Changing a stage</Strong>. Stages
+              marked <Term>·auto</Term> have no human gate: they hand straight to the next one.
             </p>
           </Internals>
 
@@ -754,30 +759,50 @@ export function Docs() {
               className="mt-[3px] size-3.5 shrink-0 text-muted-foreground"
             />
             <span>
-              Every stage has five things you can change: its <Strong>instructions</Strong>, the{" "}
-              <Strong>skill</Strong> it loads first, the <Strong>model</Strong>, whether a{" "}
-              <Strong>person reviews</Strong> it, and its <Strong>time limit</Strong>. There are two
-              places to change them and the difference matters.
+              The <Strong>Stages</Strong> tab is the one place a stage&apos;s behaviour is decided,
+              for every task that runs it. Six things per stage: its <Strong>instructions</Strong>,
+              the <Strong>skill</Strong> it loads first, the <Strong>model</Strong>, whether a{" "}
+              <Strong>person reviews</Strong> it, its <Strong>time limit</Strong>, and whether it{" "}
+              <Strong>asks first</Strong>.
             </span>
+          </p>
+
+          <p>
+            Instructions are the lever that matters. A build stage carries your code practices; a
+            mockup stage names the skill it must style from. Model and time limit mostly change cost
+            and patience.
           </p>
 
           <div className="grid gap-2 sm:grid-cols-2">
             <div className="rounded-xl border border-border/60 bg-card/40 px-3 py-2.5">
-              <p className="text-[12px] font-medium text-foreground">For one task</p>
+              <p className="text-[12px] font-medium text-foreground">
+                An edit reaches the next run
+              </p>
               <p className="mt-1 text-[12.5px] leading-[1.55]">
-                In the composer, under "Adjust the stages for this task". Nobody else is affected,
-                and the task keeps those settings for its whole life.
+                Including a retry of a stage that already failed. Change the build instructions,
+                press <Strong>Run it again</Strong>, and the next attempt uses them — no new task,
+                no deploy. A run already working finishes on what it started with.
               </p>
             </div>
             <div className="rounded-xl border border-border/60 bg-card/40 px-3 py-2.5">
-              <p className="text-[12px] font-medium text-foreground">For everyone · admin</p>
+              <p className="text-[12px] font-medium text-foreground">Every save is a version</p>
               <p className="mt-1 text-[12.5px] leading-[1.55]">
-                The <Strong>Pipelines</Strong> tab. Changes what future tasks run; anything already
-                in flight is untouched. The JSON files in the repository stay the source you can
-                always restore to.
+                <Strong>History</Strong> lists them, newest first, and reverting writes the old
+                content forward as a new version rather than deleting what came after. A save that
+                would break the executor is refused with the reason and stores nothing.
               </p>
             </div>
           </div>
+
+          <Internals>
+            <p>
+              A task freezes <Term>which</Term> stages it runs and what each one reads — that is its{" "}
+              <Term>pipeline_snapshot</Term>, and it is why unticking a stage cannot strand a later
+              one. It does not freeze the settings: those are merged in from the catalogue when the
+              stage is dispatched, and the exact definition each attempt ran under is kept on the
+              run itself.
+            </p>
+          </Internals>
 
           <p>
             Your session lasts 30 days. Change your password from your name in the top right — that
