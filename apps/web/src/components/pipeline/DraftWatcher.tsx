@@ -55,9 +55,8 @@ export function DraftWatcher() {
               : "One-pager written. Open the board to start it.",
           actionProps: {
             children: done ? "Read it" : "Open it",
-            // The board has no search params, so this opens it rather than the
-            // task; the ticket is in the title, which is what you actually need.
-            onClick: () => void navigate({ to: "/pipeline" }),
+            onClick: () =>
+              void navigate({ to: "/pipeline", search: d.task_id ? { task: d.task_id } : {} }),
           },
           data: { actionVariant: "outline", hideCopyButton: true },
         });

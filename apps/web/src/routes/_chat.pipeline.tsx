@@ -219,7 +219,8 @@ function PipelinePage() {
   const [users, setUsers] = useState<User[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [details, setDetails] = useState<Record<string, Detail>>({});
-  const [selected, setSelected] = useState<string | null>(null);
+  const { task: taskFromUrl } = Route.useSearch();
+  const [selected, setSelected] = useState<string | null>(taskFromUrl ?? null);
   const [maximized, setMaximized] = useState(false);
   const [composing, setComposing] = useState(false);
   // Conversations that have not become tasks yet. They become tasks on their own:
@@ -773,6 +774,15 @@ function PipelinePage() {
   );
 }
 
-export const Route = createFileRoute("/_chat/pipeline")({ component: PipelinePage });
+export const Route = createFileRoute("/_chat/pipeline")({
+  // `?task=<id>` opens that task's panel. Links to a task were already being
+  // shared — and silently landing on the board with nothing selected, because
+  // nothing read the parameter.
+  // The key is omitted rather than set to undefined, so every other link to
+  // /pipeline stays valid without passing a search object.
+  validateSearch: (raw: Record<string, unknown>): { task?: string } =>
+    typeof raw.task === "string" ? { task: raw.task } : {},
+  component: PipelinePage,
+});
 
 export { toneOf };
