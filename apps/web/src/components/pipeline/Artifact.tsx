@@ -198,7 +198,7 @@ export function ArtifactViewer({
       ) : (
         // Documents are read, not skimmed: a measure cap keeps the lines legible
         // however wide the reader has dragged the panel.
-        <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
+        <div className="min-h-0 flex-1 overflow-auto px-5 py-4 scrollbar-none">
           <div className="mx-auto max-w-[68ch]">
             <Markdown src={content} />
           </div>
@@ -255,7 +255,7 @@ export function DiffView({
           Back
         </Button>
       </header>
-      <pre className="min-h-0 flex-1 overflow-auto px-3 py-2 font-mono text-[11.5px] leading-5">
+      <pre className="min-h-0 flex-1 overflow-auto px-3 py-2 font-mono text-[11.5px] leading-5 scrollbar-none">
         {d && d.diff.hunks.length === 0 ? (
           <span className="text-muted-foreground">No differences.</span>
         ) : null}

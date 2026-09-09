@@ -19,6 +19,8 @@ import {
   RotateCwIcon,
   XIcon,
 } from "lucide-react";
+import { useResizableWidth } from "~/hooks/useResizableWidth";
+import { RightPanelResizeHandle } from "~/components/preview/RightPanelResizeHandle";
 import { cn } from "~/lib/utils";
 import {
   BUSY,
@@ -63,6 +65,10 @@ import { StateBadge } from "./StateBadge";
  * document being read on the right. Reading used to blank the task.
  */
 const WIDE = 900;
+/** Narrowest the reader may be dragged, and the least the column beside it keeps. */
+const READER_MIN = 320;
+const HISTORY_MIN = 380;
+const READER_DEFAULT = 520;
 
 export function TaskDetail({
   task,
@@ -98,17 +104,31 @@ export function TaskDetail({
   // Two columns is a property of the panel, not the window: it is dragged and
   // maximized independently, so it measures itself.
   const root = useRef<HTMLDivElement>(null);
-  const [wide, setWide] = useState(false);
+  const [panelWidth, setPanelWidth] = useState(0);
   useEffect(() => {
     const el = root.current;
     if (!el) return;
     const ro = new ResizeObserver((entries) => {
-      const w = entries[0]?.contentRect.width ?? 0;
-      setWide(w >= WIDE);
+      setPanelWidth(entries[0]?.contentRect.width ?? 0);
     });
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+  const wide = panelWidth >= WIDE;
+
+  // The reader is dragged from its own edge, remembered separately from the
+  // width of the whole panel so widening a mockup does not move the board.
+  // Before the first measurement the cap is deliberately absent: the hook
+  // clamps its initial state once, and a stored width squashed against a
+  // zero-width container would never come back.
+  const { width: readerWidth, handlers: readerHandlers } = useResizableWidth({
+    storageKey: "foundry:task-reader-width",
+    defaultWidth: READER_DEFAULT,
+    minWidth: READER_MIN,
+    maxWidth:
+      panelWidth === 0 ? Number.MAX_SAFE_INTEGER : Math.max(READER_MIN, panelWidth - HISTORY_MIN),
+    edge: "left",
+  });
 
   const ws = useWorkspace(task.id, onChanged);
   const opened = useRef<string | null>(null);
@@ -161,7 +181,7 @@ export function TaskDetail({
   ) : null;
 
   const body = (
-    <div className="min-h-0 flex-1 space-y-4 overflow-auto px-4 py-3">
+    <div className="min-h-0 flex-1 space-y-4 overflow-auto px-4 py-3 scrollbar-none">
       {error ? (
         <p className="rounded-lg border border-destructive/32 bg-destructive/8 px-3 py-2 text-xs text-destructive-foreground">
           {error}
@@ -262,7 +282,11 @@ export function TaskDetail({
             <NoteComposer ws={ws} />
           </div>
           {wide ? (
-            <div className="flex min-h-0 w-[46%] shrink-0 flex-col border-l border-border/50">
+            <div
+              className="relative flex min-h-0 shrink-0 flex-col border-l border-border/50"
+              style={{ width: readerWidth }}
+            >
+              <RightPanelResizeHandle handlers={readerHandlers} />
               {reader ?? <ReaderIdle />}
             </div>
           ) : null}

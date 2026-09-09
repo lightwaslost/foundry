@@ -119,7 +119,7 @@ export function ConversationPanel({
           <Spinner />
         </div>
       ) : (
-        <div className="max-h-56 space-y-1.5 overflow-y-auto px-2.5 py-2">
+        <div className="max-h-56 space-y-1.5 overflow-y-auto px-2.5 py-2 scrollbar-none">
           {turns.length === 0 ? (
             <p className="text-[12px] leading-snug text-muted-foreground">
               The agent has asked its first questions in the thread. Answer here and it carries on.

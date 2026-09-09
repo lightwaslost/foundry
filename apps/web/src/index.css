@@ -1611,6 +1611,19 @@ code {
   -webkit-app-region: no-drag;
 }
 
+/* Panels that scroll but should not show they do. The content is already
+   bounded by its own border, so the 6px lane below only adds a moving edge. */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: var(--app-scrollbar-width);

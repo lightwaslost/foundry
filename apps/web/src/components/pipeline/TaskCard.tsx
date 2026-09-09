@@ -56,7 +56,7 @@ export function TaskCard({
       onDragEnd={onDragEnd}
       title={movable ? "Drag to another stage" : "Running — stop it before moving it"}
       className={cn(
-        "group relative w-full rounded-xl border bg-card/40 px-3 py-2.5 text-left transition-colors",
+        "group w-full rounded-xl border bg-card/40 px-3 py-2.5 text-left transition-colors",
         selected
           ? "border-primary/60 bg-card/70"
           : "border-border/60 hover:border-border hover:bg-card/60",
@@ -65,9 +65,6 @@ export function TaskCard({
         dragging && "opacity-40",
       )}
     >
-      {waiting ? (
-        <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-warning" />
-      ) : null}
       <div className="flex items-start gap-2">
         <span className="min-w-0 flex-1 text-[13px] leading-snug font-medium text-foreground">
           {task.title}
