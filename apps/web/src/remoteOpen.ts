@@ -123,10 +123,20 @@ export function useRemoteOpenState(environmentId: EnvironmentId | null): RemoteO
 }
 
 /**
- * Editors offered in remote-link mode. The desktop app probes the machine the
- * renderer runs on; a browser cannot, so it offers VS Code only.
+ * Editors offered in remote-link mode when nothing can probe the viewing machine.
+ *
+ * The desktop app probes the machine the renderer runs on; a browser cannot. It
+ * used to answer "VS Code" and stop there, which meant anyone on the web app was
+ * told they had exactly one editor no matter what they had installed.
+ *
+ * Every editor here declares a `remoteScheme`, so the link it produces —
+ * `cursor://vscode-remote/ssh-remote+…` — either opens that editor or does
+ * nothing. Offering all of them risks a link that no-ops; offering one guaranteed
+ * that everyone else was simply wrong. Derived from the registry so a new editor
+ * with a remote scheme is offered without anyone remembering to come back here.
  */
-const REMOTE_FALLBACK_EDITORS: ReadonlyArray<EditorId> = ["vscode"];
+export const remoteFallbackEditors: ReadonlyArray<EditorId> = REMOTE_CAPABLE_EDITOR_IDS;
+const REMOTE_FALLBACK_EDITORS = remoteFallbackEditors;
 
 let cachedProbedEditors: ReadonlyArray<EditorId> | null = null;
 

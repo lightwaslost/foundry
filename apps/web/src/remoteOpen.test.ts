@@ -4,10 +4,10 @@ import {
   RelayConnectionTarget,
   SshConnectionTarget,
 } from "@t3tools/client-runtime/connection";
-import { buildRemoteOpenUrl, EnvironmentId } from "@t3tools/contracts";
+import { buildRemoteOpenUrl, EnvironmentId, REMOTE_CAPABLE_EDITOR_IDS } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { resolveRemoteOpenState } from "./remoteOpen";
+import { remoteFallbackEditors, resolveRemoteOpenState } from "./remoteOpen";
 
 const environmentId = EnvironmentId.make("environment-1");
 
@@ -145,5 +145,21 @@ describe("buildRemoteOpenUrl", () => {
     expect(buildRemoteOpenUrl({ editor: "zed", host: "sol", absolutePath: "/tmp/x" })).toBe(
       undefined,
     );
+  });
+});
+
+describe("remote fallback editors", () => {
+  // A browser cannot probe the machine it is displayed on. It used to answer
+  // "VS Code" and stop, which told everyone else they had one editor they may not
+  // even have installed.
+  it("offers every editor that can be opened over a remote link", () => {
+    expect([...remoteFallbackEditors]).toEqual([...REMOTE_CAPABLE_EDITOR_IDS]);
+    expect(remoteFallbackEditors).toContain("cursor");
+  });
+
+  it("only offers editors that can actually build a link", () => {
+    for (const editor of remoteFallbackEditors) {
+      expect(buildRemoteOpenUrl({ editor, host: "sol", absolutePath: "/tmp/x" })).toBeDefined();
+    }
   });
 });
