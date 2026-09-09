@@ -348,7 +348,7 @@ export function NewTask({
                   ? `The agent works across ${extras.length + 1} repositories on one branch — ${
                       cloned.find((r) => r.id === repo)?.name ?? "the primary"
                     } holds the documents, and every repository it actually changes gets its own pull request, linked to the others.`
-                  : "Optional. Pick the other repositories this change reaches; they branch under the same name."}
+                  : "Optional, and only for Create task — talking it through works this out for you."}
               </p>
             </div>
           ) : null}
