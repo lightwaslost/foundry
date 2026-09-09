@@ -37,10 +37,15 @@ export function ConversationPanel({
   run,
   envId,
   onChanged,
+  onDraft,
 }: {
   run: Run;
   envId: string | null;
   onChanged: () => void;
+  /** Whether the deliverable exists in the worktree yet. The banner above this panel
+   *  needs it and cannot work it out: artifacts are only created once you accept, so
+   *  asking the artifacts says "nothing written" loudest at the moment something is. */
+  onDraft?: (exists: boolean) => void;
 }) {
   const [turns, setTurns] = useState<Turn[] | null>(null);
   // Whether the agent has written its deliverable yet — read from the worktree, not
@@ -50,6 +55,10 @@ export function ConversationPanel({
   const [busy, setBusy] = useState<"say" | "finish" | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
+  // Held in a ref so an inline arrow at the call site does not restart the poll
+  // interval on every render of the parent.
+  const onDraftRef = useRef(onDraft);
+  onDraftRef.current = onDraft;
 
   const waiting = run.state === "conversing";
 
@@ -61,6 +70,7 @@ export function ConversationPanel({
           if (live && !unauthorized(r)) {
             setTurns(r.turns);
             setDraft(r.draft);
+            onDraftRef.current?.(r.draft !== null);
           }
         },
       );

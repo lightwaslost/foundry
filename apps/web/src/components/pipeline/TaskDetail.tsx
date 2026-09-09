@@ -29,6 +29,7 @@ import {
   STATE_LABEL,
   activeMs,
   ago,
+  bannerFor,
   duration,
   initials,
   post,
@@ -39,6 +40,7 @@ import {
   type Repo,
   type Run,
   type Task,
+  type TokenNotice,
   type User,
   unauthorized,
 } from "./api";
@@ -196,9 +198,13 @@ export function TaskDetail({
         />
       ) : (
         <>
+          <TokenNotices notices={detail?.notices ?? []} />
           {focus ? (
             <div ref={nowZone}>
               <NowZone
+                // hasDraft lives in NowZone; without this a draft from the stage you
+                // were just looking at would still be claimed for the next one.
+                key={focus.id}
                 run={focus}
                 gate={gates.find((g) => g.stage_run_id === focus.id && !g.decided_at)}
                 artifact={focusArtifact}
@@ -267,6 +273,7 @@ export function TaskDetail({
         repos={repos}
         users={users}
         now={now}
+        onChanged={onChanged}
         maximized={maximized}
         onToggleMaximized={onToggleMaximized}
         onClose={onClose}
@@ -332,6 +339,7 @@ function Header({
   onToggleMaximized,
   onClose,
   onMove,
+  onChanged,
 }: {
   task: Task;
   runs: Run[];
@@ -343,9 +351,20 @@ function Header({
   onToggleMaximized: () => void;
   onClose: () => void;
   onMove: (stage: string) => void;
+  onChanged: () => void;
 }) {
   const [about, setAbout] = useState(false);
+  const [adding, setAdding] = useState<string | null>(null);
   const repo = repos.find((r) => r.id === task.repo_id);
+  const unattached = repos.filter(
+    (r) => r.clone_state === "cloned" && !(task.repo_ids ?? []).includes(r.id),
+  );
+  const addRepo = async (id: string) => {
+    setAdding(id);
+    const r = await post<{ error?: string }>(`/api/tasks/${task.id}/repos`, { repo_id: id });
+    setAdding(null);
+    if (!unauthorized(r) && !r.error) onChanged();
+  };
   // Named in the order the task spans them, primary first.
   const spans = (task.repo_ids ?? []).map((id) => repos.find((r) => r.id === id)?.name ?? "?");
   const assignee = users.find((u) => u.id === task.assignee_id);
@@ -454,7 +473,25 @@ function Header({
         <dl className="mt-2 mr-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-lg border border-border/60 bg-card/40 px-3 py-2 text-[12px]">
           <Fact label="Pipeline">{task.pipeline}</Fact>
           <Fact label={spans.length > 1 ? "Repositories" : "Repository"}>
-            {spans.length > 1 ? spans.join(", ") : (repo?.name ?? "—")}
+            <span>{spans.length > 1 ? spans.join(", ") : (repo?.name ?? "—")}</span>
+            {/* The set was chosen before anyone knew what the work touched. The agent
+                can read all of these either way; this is what lets it write in one. */}
+            {unattached.length ? (
+              <span className="mt-1 flex flex-wrap items-center gap-1">
+                {unattached.map((r) => (
+                  <button
+                    key={r.id}
+                    type="button"
+                    disabled={adding !== null}
+                    className="rounded border border-border/60 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+                    onClick={() => void addRepo(r.id)}
+                    title={`Let this task change ${r.name} too`}
+                  >
+                    + {r.name}
+                  </button>
+                ))}
+              </span>
+            ) : null}
           </Fact>
           <Fact label="Branch">
             <span className="font-mono">{task.branch}</span>
@@ -485,12 +522,29 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
 
 // ── the one thing this task is waiting for ────────────────────────────────────
 
-const BANNER: Record<string, string> = {
-  awaiting_gate: "Waiting on you",
-  awaiting_answers: "Waiting on you",
-  conversing: "Waiting on you",
-  parked: "Stopped",
-};
+/**
+ * The work shipped, so this is not a failure — but it shipped as Foundry rather
+ * than as the person, and only they can fix that by re-scoping their own token.
+ * One line per repository: a token refused for three of them is still one errand.
+ */
+function TokenNotices({ notices }: { notices: TokenNotice[] }) {
+  const latest = new Map<string, TokenNotice>();
+  for (const n of notices) latest.set(`${n.payload.login ?? ""}/${n.payload.repo ?? ""}`, n);
+  if (latest.size === 0) return null;
+  return (
+    <div className="mb-3 flex flex-col gap-1.5">
+      {[...latest.values()].map((n) => (
+        <p
+          key={n.id}
+          className="rounded-md bg-warning-surface px-3 py-2 text-xs text-warning-foreground"
+        >
+          {n.payload.detail ??
+            `GitHub refused @${n.payload.login}'s token for ${n.payload.repo}, so Foundry used its own.`}
+        </p>
+      ))}
+    </div>
+  );
+}
 
 function NowZone({
   run,
@@ -519,7 +573,10 @@ function NowZone({
   onCancel: () => void;
   onChanged: () => void;
 }) {
-  const banner = BANNER[run.state] ?? "Working";
+  // Reported up by ConversationPanel below, which is the only thing that reads the
+  // worktree. Reset by the `key` on this section's call site when the focus changes.
+  const [hasDraft, setHasDraft] = useState(false);
+  const banner = bannerFor(run.state, hasDraft);
   const alarming = run.state === "parked";
   const wanted = NEEDS_HUMAN.has(run.state);
 
@@ -589,7 +646,7 @@ function NowZone({
           <QuestionsPanel run={run} onAnswered={onChanged} className="border-0 bg-transparent" />
         ) : null}
         {run.state === "conversing" || (run.state === "running" && run.stage_interactive) ? (
-          <ConversationPanel run={run} envId={envId} onChanged={onChanged} />
+          <ConversationPanel run={run} envId={envId} onChanged={onChanged} onDraft={setHasDraft} />
         ) : null}
         {gate ? (
           <GatePanel

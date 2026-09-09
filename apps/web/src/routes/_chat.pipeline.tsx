@@ -723,10 +723,11 @@ function PipelinePage() {
       >
         <DialogPopup className="max-w-4xl p-0" aria-label="New task">
           <NewTask
-            onTalk={async (title, repoId, assigneeId, files) => {
+            onTalk={async (title, repoId, extraRepoIds, assigneeId, files) => {
               const r = await post<{ draft?: Draft; error?: string }>("/api/drafts", {
                 title,
                 repo_id: repoId,
+                extra_repo_ids: extraRepoIds,
                 assignee_id: assigneeId,
               });
               if (unauthorized(r)) return "your session expired — sign in again";

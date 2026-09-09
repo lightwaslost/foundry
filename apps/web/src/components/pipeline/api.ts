@@ -179,10 +179,18 @@ export interface Question {
   answered_by: string | null;
   source: "foundry" | "t3" | null;
 }
+/** Work that went through on the shared token because the assignee's own was refused. */
+export interface TokenNotice {
+  id: string;
+  stage_run_id: string | null;
+  payload: { repo?: string; login?: string; step?: string; detail?: string };
+  created_at: string;
+}
 export interface Detail {
   runs: Run[];
   gates: GateRow[];
   artifacts: ArtifactMeta[];
+  notices?: TokenNotice[];
 }
 
 export interface Comment {
@@ -302,6 +310,38 @@ export const STATE_LABEL: Record<RunState, string> = {
   rejected: "rejected",
   cancelled: "cancelled",
 };
+
+/**
+ * What this run wants from you, in the words of the thing you are about to do.
+ *
+ * Three different states all said "Waiting on you", which is the one fact the
+ * reader already had — they opened the task because something was waiting. So a
+ * mid-interview one-pager read exactly like a finished one asking to be signed off.
+ *
+ * `conversing` splits on whether the deliverable exists yet: a conversation with a
+ * draft in it is a review, one without is still an interview. `hasDraft` comes from
+ * the worktree via /api/runs/:id/conversation — NOT from `artifacts`, which are
+ * created by collection and therefore do not exist until after you accept.
+ *
+ * Deliberately not STATE_LABEL. That one is total over RunState, lower-case and
+ * noun-shaped, sized for a history row beside a duration; this covers only the four
+ * states with a move in them, is sentence-case and imperative, and needs data a
+ * history row does not carry. Same states, different question.
+ */
+export function bannerFor(state: RunState, hasDraft: boolean): string {
+  switch (state) {
+    case "awaiting_gate":
+      return "Ready for your decision";
+    case "awaiting_answers":
+      return "Needs your answers to start";
+    case "conversing":
+      return hasDraft ? "Draft ready — reply or accept" : "Answer to continue";
+    case "parked":
+      return "Stopped";
+    default:
+      return "Working";
+  }
+}
 
 /** Why a run parked, in words a person can act on. */
 export const PARK_REASON: Record<string, string> = {
