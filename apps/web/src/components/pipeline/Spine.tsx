@@ -11,7 +11,7 @@ import { duration, toneOf, STATE_LABEL, type Run, type SnapshotStage, type Tone 
  * person. Segments are proportional to nothing: equal widths read as a process,
  * and the process is the point.
  */
-const SEGMENT_TONE: Record<Tone, string> = {
+export const SEGMENT_TONE: Record<Tone, string> = {
   done: "bg-success/70",
   busy: "bg-primary",
   attention: "bg-warning",

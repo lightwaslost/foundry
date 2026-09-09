@@ -38,7 +38,7 @@ export function AttentionPanel({
   icon?: ReactNode;
   title: ReactNode;
   aside?: ReactNode;
-  className?: string;
+  className?: string | undefined;
   children: ReactNode;
 }) {
   return (
@@ -144,7 +144,15 @@ export function GateActions({
   );
 }
 
-export function QuestionsPanel({ run, onAnswered }: { run: Run; onAnswered: () => void }) {
+export function QuestionsPanel({
+  run,
+  onAnswered,
+  className,
+}: {
+  run: Run;
+  onAnswered: () => void;
+  className?: string;
+}) {
   const [questions, setQuestions] = useState<Question[] | null>(null);
   const [draft, setDraft] = useState<Record<string, string | string[]>>({});
   const [busy, setBusy] = useState(false);
@@ -199,6 +207,7 @@ export function QuestionsPanel({ run, onAnswered }: { run: Run; onAnswered: () =
         open.length === 1 ? "The agent has a question" : `The agent has ${open.length} questions`
       }
       aside="answerable here or in the thread"
+      className={className}
     >
       <div className="space-y-3 px-3 pt-1 pb-3">
         {open.map((q) => (
@@ -228,10 +237,12 @@ export function GatePanel({
   gate,
   artifact,
   onDecided,
+  className,
 }: {
   gate: GateRow;
   artifact: ArtifactMeta | undefined;
   onDecided: () => void;
+  className?: string;
 }) {
   const [mode, setMode] = useState<"idle" | "revise" | "edit" | "reject">("idle");
   const [feedback, setFeedback] = useState("");
@@ -271,6 +282,7 @@ export function GatePanel({
           ? `Review the ${gate.stage}`
           : `The ${gate.stage} stage produced nothing — decide what happens`
       }${gate.attempt > 1 ? ` · attempt ${gate.attempt}` : ""}`}
+      className={className}
     >
       <div className="px-3 pt-1 pb-3">
         {mode === "idle" ? (
