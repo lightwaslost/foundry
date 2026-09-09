@@ -40,7 +40,6 @@ import {
   type Draft,
   type DraftView,
   type PipelineDef,
-  type Proposal,
   type Repo,
   type Task,
   type User,
@@ -219,11 +218,9 @@ function PipelinePage() {
   const [selected, setSelected] = useState<string | null>(null);
   const [maximized, setMaximized] = useState(false);
   const [composing, setComposing] = useState(false);
-  // The composer has two faces: the form, and the same form again holding what a
-  // conversation proposed. The conversation itself happens in T3's own thread
-  // view, which renders it far better than anything repeated here.
+  // Conversations that have not become tasks yet. They become tasks on their own:
+  // the agent's proposal IS the submit, so there is nothing to confirm here.
   const [drafts, setDrafts] = useState<Draft[]>([]);
-  const [confirming, setConfirming] = useState<{ draft: Draft; proposal: Proposal } | null>(null);
   const [envId, setEnvId] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [query, setQuery] = useState("");
@@ -237,26 +234,17 @@ function PipelinePage() {
   /** One way out of the composer, whichever of its three faces you were looking at. */
   const closeComposer = () => {
     composerDirty.current = false;
-    setConfirming(null);
     setComposing(false);
   };
 
-  /**
-   * Reopen a draft. If the agent has proposed something, the confirm pane opens on
-   * it; if it is still talking there is nothing here worth showing, so this goes to
-   * the thread — which is where the conversation lives.
-   */
+  /** A draft only ever lives in its thread — that is where the conversation is. */
   const openDraft = async (id: string) => {
     const r = await call<DraftView>(`/api/drafts/${id}`);
     if (unauthorized(r)) return;
-    if (r.proposal) {
-      setConfirming({ draft: r.draft, proposal: r.proposal });
-      setComposing(true);
-      return;
-    }
     const href = threadPath(envId, r.draft.thread_id);
     if (href) window.location.href = href;
   };
+
   const selRef = useRef<string | null>(null);
   selRef.current = selected;
 
@@ -717,8 +705,6 @@ function PipelinePage() {
       >
         <DialogPopup className="max-w-4xl p-0" aria-label="New task">
           <NewTask
-            key={confirming?.draft.id ?? "blank"}
-            draft={confirming}
             onTalk={async (title, repoId, assigneeId, files) => {
               const r = await post<{ draft?: Draft; error?: string }>("/api/drafts", {
                 title,
