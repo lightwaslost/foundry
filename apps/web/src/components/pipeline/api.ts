@@ -181,9 +181,47 @@ export interface Comment {
   body: string;
   created_at: string;
 }
+/**
+ * A conversation that has not become a task yet: the intake agent interviews you
+ * in a T3 thread, then proposes the whole ticket. Nothing here is persisted state
+ * the client has to advance — the server derives it from the thread on every read.
+ */
+export interface Draft {
+  id: string;
+  title: string;
+  repo_id: string;
+  assignee_id: string | null;
+  created_by: string;
+  thread_id: string | null;
+  task_id: string | null;
+  created_at: string;
+}
+
+/** What the agent hands back once it has enough. Shaped like the create body. */
+export interface Proposal {
+  title: string;
+  description: string;
+  stages: string[];
+  /** The first stage's document, saved with the task so that stage never runs. */
+  one_pager: string | null;
+}
+
+export interface DraftView {
+  draft: Draft;
+  /**
+   * "thinking" while the agent has the turn, "waiting" when it is your move, and
+   * "blocked" when it used its question tool — which only T3 can answer.
+   */
+  state: "thinking" | "waiting" | "blocked" | "error";
+  messages: Array<{ role: string; text: string }>;
+  proposal: Proposal | null;
+  error: string | null;
+  attachments: AttachmentMeta[];
+}
+
 export interface AttachmentMeta {
   id: string;
-  task_id: string;
+  task_id: string | null;
   uploaded_by: string | null;
   uploader: string | null;
   filename: string;

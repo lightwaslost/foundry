@@ -28,6 +28,7 @@ import { cn } from "~/lib/utils";
 import {
   BUSY,
   call,
+  del,
   initials,
   NEEDS_HUMAN,
   patch,
@@ -35,12 +36,15 @@ import {
   toneOf,
   unauthorized,
   type Detail,
+  type Draft,
   type PipelineDef,
+  type Proposal,
   type Repo,
   type Task,
   type User,
 } from "~/components/pipeline/api";
 import { Docs } from "~/components/pipeline/Docs";
+import { DraftChat } from "~/components/pipeline/DraftChat";
 import { NewTask } from "~/components/pipeline/NewTask";
 import { PipelineSettings } from "~/components/pipeline/PipelineSettings";
 import { TaskCard } from "~/components/pipeline/TaskCard";
@@ -214,6 +218,10 @@ function PipelinePage() {
   const [selected, setSelected] = useState<string | null>(null);
   const [maximized, setMaximized] = useState(false);
   const [composing, setComposing] = useState(false);
+  // The composer has three faces: the form, the conversation it can hand off to,
+  // and the same form again holding what that conversation proposed.
+  const [talking, setTalking] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<{ draft: Draft; proposal: Proposal } | null>(null);
   const [envId, setEnvId] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [query, setQuery] = useState("");
@@ -224,6 +232,13 @@ function PipelinePage() {
   const [moveError, setMoveError] = useState<string | null>(null);
 
   const composerDirty = useRef(false);
+  /** One way out of the composer, whichever of its three faces you were looking at. */
+  const closeComposer = () => {
+    composerDirty.current = false;
+    setTalking(null);
+    setConfirming(null);
+    setComposing(false);
+  };
   const selRef = useRef<string | null>(null);
   selRef.current = selected;
 
@@ -640,35 +655,60 @@ function PipelinePage() {
           // owns the "you have typed something" question, so ask it once, here.
           if (
             !open &&
-            composerDirty.current &&
+            (composerDirty.current || talking !== null) &&
             !window.confirm("Discard this task? What you have typed will be lost.")
           )
             return;
-          setComposing(open);
+          if (!open) closeComposer();
+          else setComposing(open);
         }}
       >
         <DialogPopup className="max-w-4xl p-0" aria-label="New task">
-          <NewTask
-            pipelines={pipelines}
-            repos={repos}
-            users={users}
-            skills={skills}
-            models={models}
-            me={me}
-            onDirtyChange={(d) => {
-              composerDirty.current = d;
-            }}
-            onCancel={() => {
-              composerDirty.current = false;
-              setComposing(false);
-            }}
-            onCreated={(id) => {
-              composerDirty.current = false;
-              setComposing(false);
-              setSelected(id);
-              void refresh();
-            }}
-          />
+          {talking && !confirming ? (
+            <DraftChat
+              draftId={talking}
+              envId={envId}
+              onPropose={(view, proposal) => setConfirming({ draft: view.draft, proposal })}
+              onCancel={() => {
+                // Abandoning the conversation throws the draft away: it holds no
+                // ticket and no branch, so there is nothing to keep.
+                void del(`/api/drafts/${talking}`);
+                closeComposer();
+              }}
+            />
+          ) : (
+            <NewTask
+              key={confirming?.draft.id ?? "blank"}
+              draft={confirming}
+              onTalk={async (title, repoId, assigneeId) => {
+                const r = await post<{ draft?: Draft; error?: string }>("/api/drafts", {
+                  title,
+                  repo_id: repoId,
+                  assignee_id: assigneeId,
+                });
+                if (unauthorized(r)) return "your session expired — sign in again";
+                if (r.error || !r.draft) return r.error ?? "could not start the conversation";
+                composerDirty.current = false;
+                setTalking(r.draft.id);
+                return null;
+              }}
+              pipelines={pipelines}
+              repos={repos}
+              users={users}
+              skills={skills}
+              models={models}
+              me={me}
+              onDirtyChange={(d) => {
+                composerDirty.current = d;
+              }}
+              onCancel={closeComposer}
+              onCreated={(id) => {
+                closeComposer();
+                setSelected(id);
+                void refresh();
+              }}
+            />
+          )}
         </DialogPopup>
       </Dialog>
     </SidebarInset>

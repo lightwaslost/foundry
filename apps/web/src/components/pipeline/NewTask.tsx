@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
 import { Input } from "~/components/ui/input";
@@ -21,6 +21,8 @@ import {
   type Repo,
   type StageDef,
   type StageOverride,
+  type Draft,
+  type Proposal,
   type Task,
   type User,
 } from "./api";
@@ -71,6 +73,8 @@ export function NewTask({
   skills,
   models,
   me,
+  draft,
+  onTalk,
   onCreated,
   onCancel,
   onDirtyChange,
@@ -81,25 +85,33 @@ export function NewTask({
   skills: string[];
   models: string[];
   me: User | null;
+  /**
+   * Confirming what an intake conversation proposed, rather than typing it in.
+   * Same pane and the same controls — the agent has simply ticked them — and
+   * creating posts to the draft, so its document and its files come across too.
+   */
+  draft?: { draft: Draft; proposal: Proposal } | null;
+  /** Talk it through instead of typing it. Absent while confirming a draft. */
+  onTalk?: (title: string, repoId: string, assigneeId: string | null) => Promise<string | null>;
   onCreated: (id: string) => void;
   onCancel: () => void;
   /** So the dialog's own dismissals can ask before throwing away typed work. */
   onDirtyChange?: (dirty: boolean) => void;
 }) {
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
+  const [title, setTitle] = useState(draft?.proposal.title ?? "");
+  const [description, setDescription] = useState(draft?.proposal.description ?? "");
   const [pipelineName, setPipelineName] = useState(() => fullest(pipelines));
-  const [repo, setRepo] = useState("");
+  const [repo, setRepo] = useState(draft?.draft.repo_id ?? "");
   // Repositories beyond the primary that this task is allowed to change.
   const [extras, setExtras] = useState<string[]>([]);
-  const [assignee, setAssignee] = useState(me?.id ?? "");
+  const [assignee, setAssignee] = useState(draft?.draft.assignee_id ?? me?.id ?? "");
   const [overrides, setOverrides] = useState<Record<string, StageOverride>>({});
   const [skipped, setSkipped] = useState<string[]>([]);
   const [openStage, setOpenStage] = useState<string | null>(null);
   // Picking a pipeline is now the rare case: the stages are the decision, and the
   // pipeline is only which catalogue they came from.
   const [choosing, setChoosing] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"create" | "talk" | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   const cloned = useMemo(() => repos.filter((r) => r.clone_state === "cloned"), [repos]);
@@ -122,13 +134,23 @@ export function NewTask({
   const pipeline = pipelines.find((p) => p.name === pipelineName);
   // Stage tweaks and the selection both belong to the pipeline they were made
   // against, so changing pipeline starts over with every stage switched on.
+  const stages = pipeline?.stages ?? [];
+  // Changing pipeline starts over with every stage switched on — except on the
+  // first pass of a confirmation, where the selection is the agent's answer and
+  // wiping it is exactly what must not happen.
+  const seeded = useRef(false);
   useEffect(() => {
+    if (draft && !seeded.current) {
+      if (stages.length === 0) return; // the pipelines have not arrived yet
+      seeded.current = true;
+      setSkipped(stages.filter((s) => !draft.proposal.stages.includes(s.name)).map((s) => s.name));
+      return;
+    }
     setOverrides({});
     setOpenStage(null);
     setSkipped([]);
-  }, [pipelineName]);
+  }, [pipelineName, draft, stages.length]);
 
-  const stages = pipeline?.stages ?? [];
   const kept = stages.filter((s) => !skipped.includes(s.name));
   const resolved = resolveInputs(stages, skipped);
   const last = kept[kept.length - 1];
@@ -144,21 +166,33 @@ export function NewTask({
 
   const submit = async () => {
     if (!title.trim() || !repo || kept.length === 0) return;
-    setBusy(true);
+    setBusy("create");
     setErr(null);
-    const r = await post<{ task?: Task; error?: string }>("/api/tasks", {
+    const common = {
       title,
       description,
-      pipeline: pipelineName,
-      repo_id: repo,
       ...(extras.length ? { extra_repo_ids: extras } : {}),
       assignee_id: assignee || null,
       ...(Object.keys(overrides).length ? { stage_overrides: overrides } : {}),
-      // Sent only when it is not the whole pipeline, so an untouched dialog posts
-      // exactly the body it always did.
-      ...(skipped.length ? { stages: kept.map((s) => s.name) } : {}),
-    });
-    setBusy(false);
+    };
+    // Confirming a draft always names its stages — the selection IS the decision
+    // being confirmed — and carries the document the conversation produced, which
+    // the server stores as that stage's output so the stage does not run again.
+    const r = draft
+      ? await post<{ task?: Task; error?: string }>(`/api/drafts/${draft.draft.id}/create`, {
+          ...common,
+          stages: kept.map((st) => st.name),
+          one_pager: draft.proposal.one_pager,
+        })
+      : await post<{ task?: Task; error?: string }>("/api/tasks", {
+          ...common,
+          pipeline: pipelineName,
+          repo_id: repo,
+          // Sent only when it is not the whole pipeline, so an untouched dialog
+          // posts exactly the body it always did.
+          ...(skipped.length ? { stages: kept.map((st) => st.name) } : {}),
+        });
+    setBusy(null);
     if (unauthorized(r)) return;
     if (r.error) return setErr(r.error);
     setTitle("");
@@ -166,6 +200,16 @@ export function NewTask({
     setOverrides({});
     setExtras([]);
     onCreated(r.task!.id);
+  };
+
+  /** Hand the one-liner to an intake agent instead of filling the rest in here. */
+  const talk = async () => {
+    if (!onTalk || !title.trim() || !repo) return;
+    setBusy("talk");
+    setErr(null);
+    const failure = await onTalk(title, repo, assignee || null);
+    setBusy(null);
+    if (failure) setErr(failure);
   };
 
   const tweaked = Object.entries(overrides)
@@ -190,9 +234,13 @@ export function NewTask({
   return (
     <section className="flex max-h-[85vh] flex-col">
       <header className="shrink-0 px-4 pt-4 pb-2">
-        <h2 className="text-sm font-medium tracking-[-0.005em] text-foreground">New task</h2>
+        <h2 className="text-sm font-medium tracking-[-0.005em] text-foreground">
+          {draft ? "Create this task" : "New task"}
+        </h2>
         <p className="text-[13px] text-muted-foreground">
-          An agent writes the first stage. Nothing runs until you start it.
+          {draft
+            ? `${draft.proposal.one_pager ? "The one-pager is written and saved with the task. " : ""}Stages are the agent's choice — change anything before you create it.`
+            : "An agent writes the first stage. Nothing runs until you start it."}
         </p>
       </header>
 
@@ -436,17 +484,29 @@ export function NewTask({
         <Button
           size="sm"
           onClick={() => void submit()}
-          disabled={busy || !title.trim() || !repo || kept.length === 0}
+          disabled={busy !== null || !title.trim() || !repo || kept.length === 0}
         >
-          {busy ? <Spinner /> : null}Create task
+          {busy === "create" ? <Spinner /> : null}Create task
         </Button>
+        {onTalk && !draft ? (
+          <Button
+            size="sm"
+            variant="ghost-muted"
+            onClick={() => void talk()}
+            disabled={busy !== null || !title.trim() || !repo}
+          >
+            {busy === "talk" ? <Spinner /> : null}Talk it through
+          </Button>
+        ) : null}
         <Button size="sm" variant="ghost-muted" onClick={close}>
           Cancel
         </Button>
         <span className="ml-auto text-[11px] text-muted-foreground">
           {cloned.length === 0
             ? "No repository is cloned yet — an admin adds one first."
-            : "Nothing runs until you start it."}
+            : onTalk && !draft
+              ? "Or talk it through and let the agent write the brief and pick the stages."
+              : "Nothing runs until you start it."}
         </span>
       </footer>
     </section>
