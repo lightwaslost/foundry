@@ -195,6 +195,9 @@ export interface Draft {
   thread_id: string | null;
   task_id: string | null;
   created_at: string;
+  /** The task it became, once it has. Null while it is still a conversation. */
+  ticket: string | null;
+  task_state: string | null;
 }
 
 /** What the agent hands back once it has enough. Shaped like the create body. */

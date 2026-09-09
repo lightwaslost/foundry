@@ -480,35 +480,37 @@ function PipelinePage() {
               {/* Conversations that have not become tasks yet. Nothing else on the
                   board points at them, so a draft you navigated away from would
                   otherwise be findable only by its thread URL. */}
-              {drafts.map((d) => (
-                <span
-                  key={d.id}
-                  className="inline-flex max-w-64 items-center gap-1 rounded-md border border-dashed border-border/70 pr-1 text-[12px] text-muted-foreground"
-                >
-                  <button
-                    type="button"
-                    onClick={() => void openDraft(d.id)}
-                    title="Draft — open the conversation, or confirm what it proposed"
-                    className="inline-flex min-w-0 items-center gap-1.5 rounded-l-md py-1 pl-2 hover:text-foreground"
+              {drafts
+                .filter((d) => !d.ticket)
+                .map((d) => (
+                  <span
+                    key={d.id}
+                    className="inline-flex max-w-64 items-center gap-1 rounded-md border border-dashed border-border/70 pr-1 text-[12px] text-muted-foreground"
                   >
-                    <MessageSquareIcon aria-hidden className="size-3.5 shrink-0" />
-                    <span className="truncate">{d.title}</span>
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`Discard draft ${d.title}`}
-                    title="Discard — a draft holds no ticket and no branch"
-                    onClick={() => {
-                      if (!window.confirm(`Discard "${d.title}"? The conversation goes with it.`))
-                        return;
-                      void del(`/api/drafts/${d.id}`).then(() => refresh());
-                    }}
-                    className="shrink-0 rounded p-0.5 hover:text-foreground"
-                  >
-                    <XIcon aria-hidden className="size-3" />
-                  </button>
-                </span>
-              ))}
+                    <button
+                      type="button"
+                      onClick={() => void openDraft(d.id)}
+                      title="Draft — open the conversation, or confirm what it proposed"
+                      className="inline-flex min-w-0 items-center gap-1.5 rounded-l-md py-1 pl-2 hover:text-foreground"
+                    >
+                      <MessageSquareIcon aria-hidden className="size-3.5 shrink-0" />
+                      <span className="truncate">{d.title}</span>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Discard draft ${d.title}`}
+                      title="Discard — a draft holds no ticket and no branch"
+                      onClick={() => {
+                        if (!window.confirm(`Discard "${d.title}"? The conversation goes with it.`))
+                          return;
+                        void del(`/api/drafts/${d.id}`).then(() => refresh());
+                      }}
+                      className="shrink-0 rounded p-0.5 hover:text-foreground"
+                    >
+                      <XIcon aria-hidden className="size-3" />
+                    </button>
+                  </span>
+                ))}
               <div className="relative">
                 <SearchIcon className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
                 <Input
