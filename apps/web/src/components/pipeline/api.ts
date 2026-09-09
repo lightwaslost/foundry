@@ -48,6 +48,8 @@ export interface StageDef {
   timeout_minutes: number;
   prompt: string | null;
   questions: boolean;
+  /** How hard the model thinks. Null means the provider's own default. */
+  reasoning: string | null;
   tests: "required" | null;
 }
 /**
@@ -251,6 +253,8 @@ export interface StageOverride {
   skill?: string | null;
   model?: string;
   instanceId?: string;
+  /** null puts the stage back on the provider's own default. */
+  reasoning?: string | null;
   gate?: Gate;
   timeout_minutes?: number;
   questions?: boolean;

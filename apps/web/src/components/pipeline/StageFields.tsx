@@ -9,6 +9,13 @@ import {
   SelectValue,
 } from "~/components/ui/select";
 import { Switch } from "~/components/ui/switch";
+
+/**
+ * The reasoning levels every model on offer accepts. T3 carries this as the
+ * `effort` option; `ultracode` is left out because sonnet does not take it and it
+ * means multi-agent orchestration, which is not a thing to start unattended.
+ */
+const REASONING = ["low", "medium", "high", "xhigh", "max", "ultrathink"] as const;
 import { Textarea } from "~/components/ui/textarea";
 import { Undo2Icon } from "lucide-react";
 import { cn } from "~/lib/utils";
@@ -52,6 +59,7 @@ export function StageFields({
   const skill = value.skill !== undefined ? value.skill : base.skill;
   const model = value.model ?? base.provider.model;
   const instanceId = value.instanceId ?? base.provider.instanceId;
+  const reasoning = value.reasoning !== undefined ? value.reasoning : base.reasoning;
   const gate = value.gate ?? base.gate;
   const timeout = value.timeout_minutes ?? base.timeout_minutes;
   const questions = value.questions ?? base.questions;
@@ -148,6 +156,34 @@ export function StageFields({
 
         <div className="space-y-1.5">
           <div className="flex items-center gap-1.5">
+            <Label>Reasoning</Label>
+            <Reset k="reasoning" />
+          </div>
+          <Select
+            disabled={disabled}
+            value={reasoning ?? "__default"}
+            onValueChange={(v) => set("reasoning", String(v) === "__default" ? null : String(v))}
+          >
+            <SelectTrigger size="sm" aria-label={`Reasoning for ${base.name}`}>
+              <SelectValue>{reasoning ?? "Provider default"}</SelectValue>
+            </SelectTrigger>
+            <SelectPopup alignItemWithTrigger={false}>
+              <SelectItem value="__default">Provider default</SelectItem>
+              {REASONING.map((r) => (
+                <SelectItem key={r} value={r}>
+                  {r}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+          <p className="text-[11px] text-muted-foreground">
+            How hard it thinks. More costs time and tokens; a stage that only formats what it was
+            given rarely needs it.
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-1.5">
             <Label>Review</Label>
             <Reset k="gate" />
           </div>
@@ -220,8 +256,10 @@ export function stageSummary(s: StageDef, o?: StageOverride): string {
   const model = o?.model ?? s.provider.model;
   const skill = o?.skill !== undefined ? o.skill : s.skill;
   const gate = o?.gate ?? s.gate;
+  const reasoning = o?.reasoning !== undefined ? o.reasoning : s.reasoning;
   return [
     model,
+    reasoning ? `reasoning: ${reasoning}` : null,
     skill ? `skill: ${skill}` : null,
     gate === "auto" ? "no review" : null,
     s.tests === "required" ? "tests required" : null,

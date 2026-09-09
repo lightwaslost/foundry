@@ -90,6 +90,7 @@ export function StageManager({
         gate: o.gate ?? s.gate,
         timeout_minutes: o.timeout_minutes ?? s.timeout_minutes,
         questions: o.questions ?? s.questions,
+        reasoning: o.reasoning !== undefined ? o.reasoning : s.reasoning,
         provider: {
           instanceId: o.instanceId ?? s.provider.instanceId,
           model: o.model ?? s.provider.model,
