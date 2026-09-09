@@ -33,6 +33,7 @@ import {
   NEEDS_HUMAN,
   patch,
   post,
+  threadPath,
   toneOf,
   unauthorized,
   type Detail,
@@ -253,7 +254,8 @@ function PipelinePage() {
       setComposing(true);
       return;
     }
-    if (envId && r.draft.thread_id) window.location.href = `/${envId}/thread/${r.draft.thread_id}`;
+    const href = threadPath(envId, r.draft.thread_id);
+    if (href) window.location.href = href;
   };
   const selRef = useRef<string | null>(null);
   selRef.current = selected;
@@ -745,7 +747,8 @@ function PipelinePage() {
                 return started.error ?? "could not open the conversation";
               composerDirty.current = false;
               closeComposer();
-              if (envId) window.location.href = `/${envId}/thread/${started.draft.thread_id}`;
+              const href = threadPath(envId, started.draft.thread_id);
+              if (href) window.location.href = href;
               return null;
             }}
             pipelines={pipelines}
