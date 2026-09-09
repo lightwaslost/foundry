@@ -34,6 +34,15 @@ export const put = <T>(path: string, body: unknown) =>
 
 export const del = <T>(path: string) => call<T>(path, { method: "DELETE" });
 
+/**
+ * The route to a T3 thread. It is `_chat.$environmentId.$threadId` — the ids sit
+ * side by side with nothing between them. Written down once because it was got
+ * wrong twice: a `/thread/` segment looks right, routes to nothing, and fails as
+ * a 404 page rather than as anything a build or a type would catch.
+ */
+export const threadPath = (envId: string | null, threadId: string | null | undefined) =>
+  envId && threadId ? `/${envId}/${threadId}` : null;
+
 // ── shapes ────────────────────────────────────────────────────────────────────
 export type ArtifactKind = "markdown" | "html" | "pull_request";
 export type Gate = "human" | "auto";

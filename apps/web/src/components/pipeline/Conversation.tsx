@@ -4,7 +4,7 @@ import { Spinner } from "~/components/ui/spinner";
 import { Textarea } from "~/components/ui/textarea";
 import { CheckIcon, MessageSquareIcon, SendIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
-import { call, post, unauthorized, type Run } from "./api";
+import { call, post, threadPath, unauthorized, type Run } from "./api";
 
 interface Draft {
   file: string;
@@ -95,7 +95,7 @@ export function ConversationPanel({
     onChanged();
   };
 
-  const threadHref = envId && run.t3_thread_id ? `/${envId}/thread/${run.t3_thread_id}` : null;
+  const threadHref = threadPath(envId, run.t3_thread_id);
 
   return (
     <div className="rounded-lg border border-border/60 bg-card/30">
