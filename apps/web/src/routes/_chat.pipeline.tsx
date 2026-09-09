@@ -507,7 +507,7 @@ function PipelinePage() {
               ) : null}
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6 scrollbar-none">
               {!loaded ? (
                 <AiraaLoader className="py-16" label="Loading the board" />
               ) : tasks.length === 0 ? (
@@ -521,7 +521,7 @@ function PipelinePage() {
                   </p>
                 </div>
               ) : (
-                <div className="-mx-1 flex gap-2.5 overflow-x-auto px-1 pb-2 [mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)]">
+                <div className="-mx-1 flex gap-2.5 overflow-x-auto px-1 pb-2 scrollbar-none [mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)]">
                   {columns.map((col) => (
                     <div
                       key={col.key}
