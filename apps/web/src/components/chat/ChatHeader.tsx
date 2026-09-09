@@ -46,6 +46,7 @@ import {
   WorkspaceBreadcrumbSeparator,
 } from "../WorkspaceBreadcrumb";
 import { cn } from "~/lib/utils";
+import { TaskBacklink } from "../pipeline/TaskBacklink";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
@@ -409,6 +410,8 @@ export const ChatHeader = memo(function ChatHeader({
             </Tooltip>
           )}
         </WorkspaceBreadcrumbItem>
+        {/* Foundry's own threads carry a way back to the ticket they are about. */}
+        {isServerThread ? <TaskBacklink threadId={activeThreadId} /> : null}
       </WorkspaceBreadcrumb>
       <div
         ref={headerActionsRef}
