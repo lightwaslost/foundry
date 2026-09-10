@@ -236,11 +236,14 @@ export function QuestionsPanel({
 export function GatePanel({
   gate,
   artifact,
+  stale,
   onDecided,
   className,
 }: {
   gate: GateRow;
   artifact: ArtifactMeta | undefined;
+  /** Earlier documents that changed after this stage was built from them. */
+  stale?: Array<{ stage: string; built_from: number; latest: number }> | undefined;
   onDecided: () => void;
   className?: string;
 }) {
@@ -284,6 +287,14 @@ export function GatePanel({
       className={className}
     >
       <div className="px-3 pt-1 pb-3">
+        {stale?.length ? (
+          <p className="mb-2 rounded-md bg-warning-surface px-2.5 py-2 text-[12px] text-warning-foreground">
+            {stale
+              .map((s) => `Built from ${s.stage} v${s.built_from}; ${s.stage} is now v${s.latest}.`)
+              .join(" ")}{" "}
+            Send it back to rebuild from the latest, or approve it as it is.
+          </p>
+        ) : null}
         {mode === "idle" ? (
           <GateActions
             busy={busy}

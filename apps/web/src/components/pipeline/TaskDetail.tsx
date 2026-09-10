@@ -652,6 +652,7 @@ function NowZone({
           <GatePanel
             gate={gate}
             artifact={artifact}
+            stale={run.stale_inputs}
             onDecided={onChanged}
             className="border-0 bg-transparent"
           />
