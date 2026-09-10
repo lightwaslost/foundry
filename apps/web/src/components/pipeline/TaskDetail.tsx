@@ -428,7 +428,7 @@ function Header({
                 {spans.join("·")}
               </TooltipTrigger>
               <TooltipPopup side="bottom">
-                One branch across {spans.length} repositories. {spans[0]} holds the documents; each
+                One branch across {spans.length} repositories, with {spans[0]} as the main one. Each
                 repository that changes gets its own pull request.
               </TooltipPopup>
             </Tooltip>
