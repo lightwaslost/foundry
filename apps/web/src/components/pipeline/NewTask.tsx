@@ -16,7 +16,9 @@ import { CheckIcon, ChevronRightIcon, PaperclipIcon, PlusIcon, XIcon } from "luc
 import { cn } from "~/lib/utils";
 import {
   post,
-  prefillFromLinear,
+  applyLinear,
+  removeLinear,
+  type LinearFill,
   unauthorized,
   type Catalogue,
   type Repo,
@@ -92,8 +94,17 @@ export function NewTask({
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  // The Linear ticket this started from. Unlinking keeps the text it filled in.
-  const [linked, setLinked] = useState<{ identifier: string; image_count: number } | null>(null);
+  // The Linear ticket this started from, and what it filled in — so unlinking or
+  // picking another takes the ticket's text back out and leaves what was typed.
+  const [linked, setLinked] = useState<{
+    identifier: string;
+    image_count: number;
+    fill: LinearFill;
+  } | null>(null);
+  const setFields = (f: { title: string; description: string }) => {
+    setTitle(f.title);
+    setDescription(f.description);
+  };
   // Every repository this task may change, in the order they were chosen. The head
   // is the main one: its pull request is the headline and the others link back to
   // it. Keeping that as a position rather than a second piece of
@@ -238,7 +249,10 @@ export function NewTask({
                 <button
                   type="button"
                   aria-label={`Unlink ${linked.identifier}`}
-                  onClick={() => setLinked(null)}
+                  onClick={() => {
+                    setFields(removeLinear({ title, description }, linked.fill));
+                    setLinked(null);
+                  }}
                   className="text-muted-foreground hover:text-foreground"
                 >
                   <XIcon aria-hidden className="size-3" />
@@ -257,10 +271,15 @@ export function NewTask({
               users={users}
               me={me}
               onPick={(issue) => {
-                const next = prefillFromLinear({ title, description }, issue);
-                setTitle(next.title);
-                setDescription(next.description);
-                setLinked({ identifier: issue.identifier, image_count: issue.image_count });
+                // The picker only shows while nothing is linked, and unlinking already
+                // took the previous ticket's text out — so a new pick never piles up.
+                const next = applyLinear({ title, description }, issue);
+                setFields(next);
+                setLinked({
+                  identifier: issue.identifier,
+                  image_count: issue.image_count,
+                  fill: next.fill,
+                });
               }}
             />
           )}

@@ -274,18 +274,44 @@ export interface LinearIssue {
   image_count: number;
 }
 
+/** What a picked ticket put into New Task, so unlinking or re-picking takes exactly that back out. */
+export interface LinearFill {
+  /** The title it filled in, or null when the person had already typed one. */
+  title: string | null;
+  /** What it added to the context box: the ticket body and its link. */
+  block: string;
+}
+
+type Fields = { title: string; description: string };
+
 /**
- * What New Task holds after a ticket is picked. Nothing typed is overwritten: an
- * empty field takes the ticket's, and typed context gets the ticket appended below.
+ * Fill New Task from a ticket. Nothing typed is overwritten: an empty title takes
+ * the ticket's, and typed context gets the ticket below it.
  */
-export function prefillFromLinear(
-  cur: { title: string; description: string },
+export function applyLinear(
+  cur: Fields,
   issue: Pick<LinearIssue, "title" | "description" | "url">,
-): { title: string; description: string } {
-  const body = [issue.description.trim(), `Linear: ${issue.url}`].filter(Boolean).join("\n\n");
+): Fields & { fill: LinearFill } {
+  const block = [issue.description.trim(), `Linear: ${issue.url}`].filter(Boolean).join("\n\n");
+  const title = cur.title.trim() ? null : issue.title.slice(0, 200);
   return {
-    title: cur.title.trim() ? cur.title : issue.title.slice(0, 200),
-    description: cur.description.trim() ? `${cur.description.trimEnd()}\n\n${body}` : body,
+    title: title ?? cur.title,
+    description: cur.description.trim() ? `${cur.description.trimEnd()}\n\n${block}` : block,
+    fill: { title, block },
+  };
+}
+
+/**
+ * Take a ticket's text back out, leaving what the person typed. A title they
+ * changed, or a ticket block they edited, is theirs now and stays.
+ */
+export function removeLinear(cur: Fields, fill: LinearFill): Fields {
+  const at = cur.description.lastIndexOf(fill.block);
+  const before = cur.description.slice(0, Math.max(at, 0)).trim();
+  const after = cur.description.slice(at + fill.block.length).trim();
+  return {
+    title: fill.title !== null && cur.title === fill.title ? "" : cur.title,
+    description: at === -1 ? cur.description : [before, after].filter(Boolean).join("\n\n"),
   };
 }
 
