@@ -249,28 +249,6 @@ export function GatePanel({
   const [draft, setDraft] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  // Whether the agent has changed the file since Foundry filed it. Collection is a
-  // one-shot snapshot and the worktree stays writable, so what you are about to
-  // approve is not necessarily what is there now.
-  const [stale, setStale] = useState(false);
-
-  const checkDisk = () =>
-    void call<{ disk?: { changed: boolean } | null }>(`/api/gates/${gate.id}`).then((r) => {
-      if (!unauthorized(r)) setStale(r.disk?.changed === true);
-    });
-  useEffect(checkDisk, [gate.id]);
-
-  const refresh = async () => {
-    setBusy(true);
-    setErr(null);
-    const r = await post<{ error?: string }>(`/api/gates/${gate.id}/recollect`, {});
-    setBusy(false);
-    if (unauthorized(r)) return;
-    if (r.error) return setErr(r.error);
-    setStale(false);
-    onDecided(); // re-reads the task, so the new version shows
-  };
-
   const decide = async (
     decision: "approve" | "revise" | "reject",
     extra: Record<string, unknown> = {},
@@ -306,14 +284,6 @@ export function GatePanel({
       className={className}
     >
       <div className="px-3 pt-1 pb-3">
-        {stale ? (
-          <div className="mb-2 flex flex-wrap items-center gap-2 rounded-md bg-warning-surface px-2.5 py-2 text-[12px] text-warning-foreground">
-            <span>The agent has changed this since it was collected.</span>
-            <Button size="xs" variant="ghost-muted" disabled={busy} onClick={() => void refresh()}>
-              Refresh
-            </Button>
-          </div>
-        ) : null}
         {mode === "idle" ? (
           <GateActions
             busy={busy}
