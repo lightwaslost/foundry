@@ -729,12 +729,14 @@ function PipelinePage() {
         <DialogPopup className="max-w-4xl p-0" aria-label="New task">
           <NewTask
             defaultRepos={defaultRepos}
-            onTalk={async (title, repoId, extraRepoIds, assigneeId, files) => {
+            onTalk={async (title, repoId, extraRepoIds, assigneeId, files, brief, linearIssue) => {
               const r = await post<{ draft?: Draft; error?: string }>("/api/drafts", {
                 title,
                 repo_id: repoId,
                 extra_repo_ids: extraRepoIds,
                 assignee_id: assigneeId,
+                brief,
+                ...(linearIssue ? { linear_issue: linearIssue } : {}),
               });
               if (unauthorized(r)) return "your session expired — sign in again";
               if (r.error || !r.draft) return r.error ?? "could not start the conversation";

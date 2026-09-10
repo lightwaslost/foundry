@@ -257,6 +257,38 @@ export interface AttachmentMeta {
   created_at: string;
 }
 
+/** One row of the Linear picker — no description, which can run to 10 KB. */
+export interface LinearIssueRow {
+  identifier: string;
+  title: string;
+  url: string;
+  state: { name: string; type: string };
+  assignee: { name: string } | null;
+}
+/** A ticket picked to start from. Its images are fetched by Foundry, not the browser. */
+export interface LinearIssue {
+  identifier: string;
+  title: string;
+  url: string;
+  description: string;
+  image_count: number;
+}
+
+/**
+ * What New Task holds after a ticket is picked. Nothing typed is overwritten: an
+ * empty field takes the ticket's, and typed context gets the ticket appended below.
+ */
+export function prefillFromLinear(
+  cur: { title: string; description: string },
+  issue: Pick<LinearIssue, "title" | "description" | "url">,
+): { title: string; description: string } {
+  const body = [issue.description.trim(), `Linear: ${issue.url}`].filter(Boolean).join("\n\n");
+  return {
+    title: cur.title.trim() ? cur.title : issue.title.slice(0, 200),
+    description: cur.description.trim() ? `${cur.description.trimEnd()}\n\n${body}` : body,
+  };
+}
+
 /** What a person may change per stage — for a whole pipeline or for one task. */
 export interface StageOverride {
   prompt?: string;

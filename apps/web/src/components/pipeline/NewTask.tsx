@@ -16,6 +16,7 @@ import { CheckIcon, ChevronRightIcon, PaperclipIcon, PlusIcon, XIcon } from "luc
 import { cn } from "~/lib/utils";
 import {
   post,
+  prefillFromLinear,
   unauthorized,
   type Catalogue,
   type Repo,
@@ -23,6 +24,7 @@ import {
   type Task,
   type User,
 } from "./api";
+import { LinearPicker } from "./LinearPicker";
 import { stageSummary } from "./StageFields";
 
 /**
@@ -79,6 +81,9 @@ export function NewTask({
     extraRepoIds: string[],
     assigneeId: string | null,
     files: File[],
+    /** The context box — the agent reads it on its first turn, beside the title. */
+    brief: string,
+    linearIssue: string | null,
   ) => Promise<string | null>;
   onCreated: (id: string) => void;
   onCancel: () => void;
@@ -87,6 +92,8 @@ export function NewTask({
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  // The Linear ticket this started from. Unlinking keeps the text it filled in.
+  const [linked, setLinked] = useState<{ identifier: string; image_count: number } | null>(null);
   // Every repository this task may change, in the order they were chosen. The head
   // is the main one: its pull request is the headline and the others link back to
   // it. Keeping that as a position rather than a second piece of
@@ -163,12 +170,14 @@ export function NewTask({
       // Sent only when it is not the whole catalogue, so an untouched dialog posts
       // exactly the body it always did.
       ...(skipped.length ? { stages: kept.map((st) => st.name) } : {}),
+      ...(linked ? { linear_issue: linked.identifier } : {}),
     });
     setBusy(null);
     if (unauthorized(r)) return;
     if (r.error) return setErr(r.error);
     setTitle("");
     setDescription("");
+    setLinked(null);
     setPicked(seed.length ? seed : null);
     onCreated(r.task!.id);
   };
@@ -178,7 +187,15 @@ export function NewTask({
     if (!onTalk || !title.trim() || !repo) return;
     setBusy("talk");
     setErr(null);
-    const failure = await onTalk(title, repo, extras, assignee || null, files);
+    const failure = await onTalk(
+      title,
+      repo,
+      extras,
+      assignee || null,
+      files,
+      description,
+      linked?.identifier ?? null,
+    );
     setBusy(null);
     if (failure) setErr(failure);
   };
@@ -189,6 +206,7 @@ export function NewTask({
     title.trim().length > 0 ||
     description.trim().length > 0 ||
     files.length > 0 ||
+    linked !== null ||
     // Divergence from the default, not "more than one" — otherwise seeding the
     // picker would make an untouched dialog prompt on every Escape.
     (picked !== null && picked.join() !== seed.join()) ||
@@ -213,6 +231,39 @@ export function NewTask({
       <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto px-4 py-3 sm:grid-cols-[minmax(0,1fr)_320px]">
         {/* Left — the ask. */}
         <div className="space-y-3">
+          {linked ? (
+            <div className="space-y-1">
+              <span className="inline-flex items-center gap-1 rounded-md border border-primary/40 bg-primary/12 px-2 py-1 font-mono text-[11px] text-foreground">
+                {linked.identifier}
+                <button
+                  type="button"
+                  aria-label={`Unlink ${linked.identifier}`}
+                  onClick={() => setLinked(null)}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <XIcon aria-hidden className="size-3" />
+                </button>
+              </span>
+              {linked.image_count > 0 ? (
+                <p className="text-[11px] text-muted-foreground">
+                  {linked.image_count} image{linked.image_count === 1 ? "" : "s"} from{" "}
+                  {linked.identifier} {linked.image_count === 1 ? "is" : "are"} attached when the
+                  task is created
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <LinearPicker
+              users={users}
+              me={me}
+              onPick={(issue) => {
+                const next = prefillFromLinear({ title, description }, issue);
+                setTitle(next.title);
+                setDescription(next.description);
+                setLinked({ identifier: issue.identifier, image_count: issue.image_count });
+              }}
+            />
+          )}
           <div className="space-y-1.5">
             <Label htmlFor="task-title">What do you want built?</Label>
             <Input
