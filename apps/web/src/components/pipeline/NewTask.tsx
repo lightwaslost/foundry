@@ -54,6 +54,7 @@ function resolveInputs(stages: StageDef[], skipped: string[]): Map<string, strin
 export function NewTask({
   catalogue,
   repos,
+  defaultRepos = [],
   users,
   me,
   onTalk,
@@ -63,6 +64,8 @@ export function NewTask({
 }: {
   catalogue: Catalogue;
   repos: Repo[];
+  /** The repositories every task starts with, main first. Empty: just the first one. */
+  defaultRepos?: string[];
   users: User[];
   me: User | null;
   /**
@@ -85,8 +88,8 @@ export function NewTask({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   // Every repository this task may change, in the order they were chosen. The head
-  // is the primary: it holds specs/<TICKET>/ and its pull request is the one the
-  // others link back to. Keeping that as a position rather than a second piece of
+  // is the main one: its pull request is the headline and the others link back to
+  // it. Keeping that as a position rather than a second piece of
   // state is what makes "untick the primary" need no code -- the next one is
   // already standing where it needs to be.
   //
@@ -103,9 +106,15 @@ export function NewTask({
   const [err, setErr] = useState<string | null>(null);
 
   const cloned = useMemo(() => repos.filter((r) => r.clone_state === "cloned"), [repos]);
+  // What an untouched dialog starts with: the team's repositories, main first, or
+  // just the first one when none are configured.
+  const seed = useMemo(() => {
+    const d = defaultRepos.filter((id) => cloned.some((r) => r.id === id));
+    return d.length ? d : cloned[0] ? [cloned[0].id] : [];
+  }, [defaultRepos, cloned]);
   useEffect(() => {
-    if (picked === null && cloned[0]) setPicked([cloned[0].id]);
-  }, [cloned, picked]);
+    if (picked === null && seed.length) setPicked(seed);
+  }, [seed, picked]);
   const chosen = picked ?? [];
   const repo = chosen[0] ?? "";
   const extras = chosen.slice(1);
@@ -115,7 +124,7 @@ export function NewTask({
     setPicked((prev) => {
       const cur = prev ?? [];
       if (!cur.includes(id)) return [...cur, id];
-      if (cur.length === 1) return cur; // something has to hold the documents
+      if (cur.length === 1) return cur; // a task needs a main repository
       return cur.filter((x) => x !== id); // dropping the head promotes the next
     });
   const makePrimary = (id: string) =>
@@ -160,7 +169,7 @@ export function NewTask({
     if (r.error) return setErr(r.error);
     setTitle("");
     setDescription("");
-    setPicked(cloned[0] ? [cloned[0].id] : null);
+    setPicked(seed.length ? seed : null);
     onCreated(r.task!.id);
   };
 
@@ -182,7 +191,7 @@ export function NewTask({
     files.length > 0 ||
     // Divergence from the default, not "more than one" — otherwise seeding the
     // picker would make an untouched dialog prompt on every Escape.
-    (picked !== null && (picked.length !== 1 || picked[0] !== cloned[0]?.id)) ||
+    (picked !== null && picked.join() !== seed.join()) ||
     skipped.length > 0;
   useEffect(() => {
     onDirtyChange?.(dirty);
@@ -311,10 +320,14 @@ export function NewTask({
                   type="button"
                   className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
                   onClick={() =>
-                    setPicked(allPicked ? [chosen[0] ?? cloned[0]!.id] : cloned.map((r) => r.id))
+                    setPicked(
+                      allPicked
+                        ? [chosen[0] ?? cloned[0]!.id]
+                        : [...new Set([...chosen, ...seed, ...cloned.map((r) => r.id)])],
+                    )
                   }
                 >
-                  {allPicked ? "just the first" : "all repos"}
+                  {allPicked ? "just the main one" : "all repos"}
                 </button>
               </div>
               <div className="flex flex-wrap gap-1.5">
@@ -345,15 +358,15 @@ export function NewTask({
                         {r.name}
                       </button>
                       {isPrimary ? (
-                        <span className="rounded bg-primary/20 px-1 text-[10px]">docs</span>
+                        <span className="rounded bg-primary/20 px-1 text-[10px]">main</span>
                       ) : on ? (
                         <button
                           type="button"
-                          aria-label={`Keep the documents in ${r.name}`}
+                          aria-label={`Make ${r.name} the main repository`}
                           className="text-[10px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
                           onClick={() => makePrimary(r.id)}
                         >
-                          docs?
+                          main?
                         </button>
                       ) : null}
                     </div>
@@ -362,9 +375,9 @@ export function NewTask({
               </div>
               <p className="text-[11px] text-muted-foreground">
                 {extras.length
-                  ? `One branch across ${chosen.length} repositories — ${
+                  ? `One branch across ${chosen.length} repositories, with ${
                       cloned.find((r) => r.id === repo)?.name ?? "the first"
-                    } holds the documents, and every repository the agent actually changes gets its own pull request, linked to the others.`
+                    } as the main one. Say in the description which to change; only the ones the agent actually changes get a pull request, linked to the others.`
                   : "Tick every repository this might change. The agent can read them all either way, but it only writes in these."}
               </p>
             </div>

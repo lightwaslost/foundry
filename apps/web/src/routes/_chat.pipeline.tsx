@@ -216,6 +216,8 @@ function PipelinePage() {
   const [skills, setSkills] = useState<string[]>([]);
   const [models, setModels] = useState<string[]>([]);
   const [repos, setRepos] = useState<Repo[]>([]);
+  // Every task starts with these ticked, main first. An older backend sends none.
+  const [defaultRepos, setDefaultRepos] = useState<string[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [details, setDetails] = useState<Record<string, Detail>>({});
@@ -302,7 +304,7 @@ function PipelinePage() {
     setMe(meRes.user);
     const [p, r, u, t, m, d] = await Promise.all([
       call<Catalogue & { skills: string[] }>("/api/stages"),
-      call<{ repos: Repo[] }>("/api/repos"),
+      call<{ repos: Repo[]; default_repos?: string[] }>("/api/repos"),
       call<{ users: User[] }>("/api/users"),
       call<{ tasks: Task[] }>("/api/tasks"),
       call<{ models: string[] }>("/api/models"),
@@ -322,7 +324,10 @@ function PipelinePage() {
       });
       setSkills(p.skills ?? []);
     }
-    if (!unauthorized(r)) setRepos(r.repos);
+    if (!unauthorized(r)) {
+      setRepos(r.repos);
+      setDefaultRepos(r.default_repos ?? []);
+    }
     if (!unauthorized(u)) setUsers(u.users);
     if (!unauthorized(m)) setModels(m.models);
     if (!unauthorized(t)) {
@@ -723,6 +728,7 @@ function PipelinePage() {
       >
         <DialogPopup className="max-w-4xl p-0" aria-label="New task">
           <NewTask
+            defaultRepos={defaultRepos}
             onTalk={async (title, repoId, extraRepoIds, assigneeId, files) => {
               const r = await post<{ draft?: Draft; error?: string }>("/api/drafts", {
                 title,
