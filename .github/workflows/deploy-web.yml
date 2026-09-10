@@ -25,6 +25,30 @@ jobs:
           # pinned host key (no runtime ssh-keyscan)
           echo '187.127.191.239 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEuoqD//odUNPhh/1upsuZ6ZSXoYotlPaNmefwIJxLgB' >> ~/.ssh/known_hosts
 
+      - name: refuse to ship ahead of the backend it needs
+        env:
+          H: "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}"
+          SSHOPTS: "-o ServerAliveInterval=15 -o ServerAliveCountMax=6 -o ConnectTimeout=20"
+        run: |
+          # Backend before frontend is not a convention, it is a dependency: the
+          # bundle reads routes and fields that only a new enough backend serves.
+          # Shipping the bundle first rendered a board with nothing on it. This makes
+          # the order mechanical rather than remembered.
+          REQ=$(grep -v '^#' apps/web/requires-backend | tr -d '[:space:]')
+          [ -n "$REQ" ] || { echo "apps/web/requires-backend is empty"; exit 1; }
+          ssh $SSHOPTS "$H" "REQ=$REQ bash -s" <<'EOF'
+          set -e
+          if grep -qx "$REQ" /opt/foundry/releases.log 2>/dev/null; then
+            echo "backend $REQ has been activated -- ok to ship"
+          else
+            echo "backend $REQ has never been activated on this host; deploy foundry-mvp first"
+            echo "activated so far:"; tail -5 /opt/foundry/releases.log 2>/dev/null || echo "(no log)"
+            exit 1
+          fi
+          curl -sf http://172.17.0.1:4477/api/health | grep -q '"ok":true' || { echo "backend is not healthy; not shipping onto it"; exit 1; }
+          EOF
+        shell: bash
+
       - name: ship web bundle (keep previous for rollback)
         env:
           H: "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}"
