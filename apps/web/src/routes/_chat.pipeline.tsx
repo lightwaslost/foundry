@@ -410,9 +410,14 @@ function PipelinePage() {
 
   const columns = useMemo(() => {
     const open = visible.filter((t) => t.state === "open");
+    // Rejected and cancelled tasks had no column, so they vanished from the board.
+    // Shown only when there are some; nothing can be dropped here (it is not a stage),
+    // but a card can be dragged back out, which reopens it like a shipped one.
+    const closed = visible.filter((t) => t.state === "rejected" || t.state === "cancelled");
     return [
       ...stageNames.map((name) => ({ key: name, tasks: open.filter((t) => t.stage === name) })),
       { key: "shipped", tasks: visible.filter((t) => t.state === "done") },
+      ...(closed.length ? [{ key: "rejected", tasks: closed }] : []),
     ];
   }, [visible, stageNames]);
   const filtered = visible.length !== tasks.length;
@@ -578,6 +583,10 @@ function PipelinePage() {
               <span className="text-[11px] text-muted-foreground">
                 {visible.filter((t) => t.state === "open").length} open ·{" "}
                 {visible.filter((t) => t.state === "done").length} shipped
+                {(() => {
+                  const n = visible.filter((t) => t.state === "rejected" || t.state === "cancelled").length;
+                  return n ? ` · ${n} rejected` : "";
+                })()}
                 {filtered ? ` · ${tasks.length - visible.length} hidden` : ""}
               </span>
               {moveError ? (
@@ -604,7 +613,7 @@ function PipelinePage() {
                     <div
                       key={col.key}
                       onDragOver={(e) => {
-                        if (!dragTask) return;
+                        if (!dragTask || col.key === "rejected") return;
                         e.preventDefault();
                         e.dataTransfer.dropEffect = "move";
                         setDropTarget(col.key);
