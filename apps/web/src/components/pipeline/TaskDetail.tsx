@@ -75,6 +75,15 @@ const WIDE = 900;
 const READER_MIN = 320;
 const HISTORY_MIN = 380;
 const READER_DEFAULT = 520;
+/**
+ * The document is what you came to read, so on a wide panel it gets the larger
+ * share. Estimated from the window because the panel is not measured yet when the
+ * width is first read; the board opens the panel at 52% of the window.
+ */
+const readerDefault = () =>
+  typeof window === "undefined"
+    ? READER_DEFAULT
+    : Math.max(READER_DEFAULT, Math.round(window.innerWidth * 0.52 * 0.55));
 
 export function TaskDetail({
   task,
@@ -129,7 +138,7 @@ export function TaskDetail({
   // zero-width container would never come back.
   const { width: readerWidth, handlers: readerHandlers } = useResizableWidth({
     storageKey: "foundry:task-reader-width",
-    defaultWidth: READER_DEFAULT,
+    defaultWidth: readerDefault(),
     minWidth: READER_MIN,
     maxWidth:
       panelWidth === 0 ? Number.MAX_SAFE_INTEGER : Math.max(READER_MIN, panelWidth - HISTORY_MIN),
@@ -451,8 +460,10 @@ function Header({
         {focus ? <StateBadge state={focus.state} /> : null}
       </div>
 
-      <div className="mt-1.5 flex items-center gap-2 pr-2 font-mono text-[11px] text-muted-foreground">
-        <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate">
+      <div className="mt-1.5 flex items-start gap-2 pr-2 font-mono text-[11px] text-muted-foreground">
+        {/* Wraps rather than truncating the whole line: squeezed beside the board
+            on a laptop, every part used to read "f…". The branch alone truncates. */}
+        <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-0.5 pt-0.5">
           <span>{task.pipeline}</span>
           <span aria-hidden>·</span>
           {spans.length > 1 ? (
@@ -469,8 +480,12 @@ function Header({
             <span className="truncate">{repo?.name ?? "—"}</span>
           )}
           <span aria-hidden>·</span>
-          <GitBranchIcon aria-hidden className="size-3 shrink-0" />
-          <span className="truncate">{task.branch}</span>
+          <span className="flex min-w-0 max-w-full items-center gap-1">
+            <GitBranchIcon aria-hidden className="size-3 shrink-0" />
+            <span className="truncate" title={task.branch}>
+              {task.branch}
+            </span>
+          </span>
           <span aria-hidden>·</span>
           {assignee ? (
             <Tooltip>

@@ -151,11 +151,16 @@ function AccountMenu({ me, onSignedOut }: { me: User; onSignedOut: () => void })
 
   return (
     <div className="relative">
-      <Button size="xs" variant="ghost-muted" onClick={() => setOpen((v) => !v)}>
+      <Button
+        size="xs"
+        variant="ghost-muted"
+        aria-label={`Account: ${me.name}`}
+        onClick={() => setOpen((v) => !v)}
+      >
         <span className="grid size-4 place-items-center rounded-full bg-secondary text-[9px] font-medium text-secondary-foreground">
           {initials(me.name)}
         </span>
-        {me.name}
+        <span className="hidden @3xl:inline">{me.name}</span>
       </Button>
       {open ? (
         <div className="absolute right-0 z-50 mt-1 max-h-[70vh] w-76 overflow-y-auto rounded-xl border border-border/60 bg-popover p-3 shadow-lg">
@@ -434,27 +439,39 @@ function PipelinePage() {
 
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
-      <WorkspacePageHeader electron={isElectron}>
-        <WorkspaceBreadcrumb ariaLabel="Foundry">
+      {/* The bar sizes itself by its own width, not the window's: the sidebar
+          takes 256px or none, and the breadcrumb used to draw under the waiting
+          count on every laptop-sized window. Narrow, it drops what the tab row
+          already says — the page name, the words after the count, your name. */}
+      <WorkspacePageHeader electron={isElectron} className="@container">
+        <WorkspaceBreadcrumb ariaLabel="Foundry" className="overflow-hidden">
           <WorkspaceBreadcrumbItem>Foundry</WorkspaceBreadcrumbItem>
-          <WorkspaceBreadcrumbSeparator />
-          <WorkspaceBreadcrumbItem>{TAB_LABEL[tab]}</WorkspaceBreadcrumbItem>
+          <WorkspaceBreadcrumbSeparator className="hidden @4xl:flex" />
+          <WorkspaceBreadcrumbItem className="hidden truncate @4xl:flex">
+            {TAB_LABEL[tab]}
+          </WorkspaceBreadcrumbItem>
         </WorkspaceBreadcrumb>
 
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">
           {waiting.length > 0 ? (
             <Button
               size="xs"
               variant={mine.length > 0 ? "warning-outline" : "ghost-muted"}
+              title={
+                mine.length > 0
+                  ? `${mine.length} waiting on you`
+                  : `${waiting.length} waiting on someone`
+              }
               onClick={() => {
                 setTab("board");
                 setSelected((mine[0] ?? waiting[0])!.id);
               }}
             >
               <BellIcon />
-              {mine.length > 0
-                ? `${mine.length} waiting on you`
-                : `${waiting.length} waiting on someone`}
+              {mine.length > 0 ? mine.length : waiting.length}
+              <span className="hidden @4xl:inline">
+                {mine.length > 0 ? "waiting on you" : "waiting on someone"}
+              </span>
             </Button>
           ) : null}
           <div className="flex items-center rounded-lg border border-border/60 p-0.5">
@@ -488,7 +505,7 @@ function PipelinePage() {
               the panel for flex space. */}
           <div
             className={cn(
-              "flex min-h-0 min-w-0 flex-col overflow-hidden",
+              "@container/board flex min-h-0 min-w-0 flex-col overflow-hidden",
               maximized && task ? "w-0 flex-none" : "flex-1",
             )}
           >
@@ -610,7 +627,7 @@ function PipelinePage() {
                   </p>
                 </div>
               ) : (
-                <div className="-mx-1 flex gap-2.5 overflow-x-auto px-1 pb-2 scrollbar-none [mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)]">
+                <div className="-mx-1 flex snap-x snap-proximity gap-2.5 overflow-x-auto pr-8 pb-2 pl-1 scrollbar-none [mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)]">
                   {columns.map((col) => (
                     <div
                       key={col.key}
@@ -629,7 +646,10 @@ function PipelinePage() {
                         if (id) void move(id, col.key);
                       }}
                       className={cn(
-                        "w-[200px] shrink-0 space-y-2 rounded-xl xl:w-[228px]",
+                        // Columns share a wide screen instead of leaving half of it
+                        // empty; squeezed beside a task they show one readable column
+                        // and a peek of the next, rather than one and a half cut mid-card.
+                        "max-w-80 min-w-[210px] flex-1 snap-start space-y-2 rounded-xl @max-md/board:min-w-[85%]",
                         dropTarget === col.key &&
                           "bg-primary/6 outline-2 outline-dashed outline-primary/40",
                       )}

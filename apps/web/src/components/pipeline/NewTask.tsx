@@ -267,7 +267,7 @@ export function NewTask({
         </p>
       </header>
 
-      <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto px-4 py-3 sm:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto px-4 py-3 sm:grid-cols-[minmax(0,1fr)_320px] lg:grid-cols-[minmax(0,1fr)_360px]">
         {/* Left — the ask. */}
         <div className="space-y-3">
           {linked ? (
@@ -566,10 +566,15 @@ export function NewTask({
                             ? `reads: ${reads.join(", ")}`
                             : (s.output.file ?? "pull request")}
                       </div>
+                      {/* Its own line: beside the name it pushed the name to zero width
+                          and the two drew over each other in the 320px column. */}
+                      <div
+                        className="truncate font-mono text-[10px] text-muted-foreground/80"
+                        title={stageSummary(s)}
+                      >
+                        {stageSummary(s)}
+                      </div>
                     </div>
-                    <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-                      {stageSummary(s)}
-                    </span>
                   </div>
                 </div>
               );
