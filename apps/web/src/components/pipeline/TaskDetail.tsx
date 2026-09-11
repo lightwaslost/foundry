@@ -33,6 +33,7 @@ import {
   duration,
   initials,
   post,
+  taskPrs,
   toneOf,
   type ArtifactMeta,
   type Detail,
@@ -368,6 +369,8 @@ function Header({
   // Named in the order the task spans them, primary first.
   const spans = (task.repo_ids ?? []).map((id) => repos.find((r) => r.id === id)?.name ?? "?");
   const assignee = users.find((u) => u.id === task.assignee_id);
+  // On the task itself, so they are there at every stage after the build opens them.
+  const prs = taskPrs(runs);
 
   return (
     <header className="shrink-0 border-b border-border/50 py-3 pr-2 pl-4">
@@ -468,6 +471,21 @@ function Header({
           <ChevronDownIcon aria-hidden className={cn("size-3", about && "rotate-180")} />
         </Button>
       </div>
+
+      {prs.length ? (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 pr-2">
+          {prs.map((pr) => (
+            <Button
+              key={pr.url}
+              size="xs"
+              variant="outline"
+              render={<a href={pr.url} target="_blank" rel="noreferrer" />}
+            >
+              <GitPullRequestIcon /> {pr.label}
+            </Button>
+          ))}
+        </div>
+      ) : null}
 
       {about ? (
         <dl className="mt-2 mr-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-lg border border-border/60 bg-card/40 px-3 py-2 text-[12px]">

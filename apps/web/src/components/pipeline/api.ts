@@ -149,6 +149,24 @@ export interface Run {
   /** Documents this run was built from that have a newer version now. An older backend sends none. */
   stale_inputs?: Array<{ stage: string; built_from: number; latest: number }>;
 }
+
+/**
+ * Every pull request a task has, one per repository: the newest run's link for
+ * each, primary first. Shown on the task at every stage, not only under the build
+ * that opened them. An older backend sends no `prs`; its one `pr_url` stands in.
+ */
+export function taskPrs(runs: Run[]): Array<{ url: string; label: string }> {
+  const newestFirst = [...runs].reverse();
+  const byRepo = new Map<string, { url: string; label: string }>();
+  for (const r of newestFirst) {
+    for (const p of r.prs ?? []) {
+      if (!byRepo.has(p.repo)) byRepo.set(p.repo, { url: p.url, label: `${p.repo} #${p.number}` });
+    }
+  }
+  if (byRepo.size) return [...byRepo.values()];
+  const url = newestFirst.find((r) => r.pr_url)?.pr_url;
+  return url ? [{ url, label: "Pull request" }] : [];
+}
 export interface GateRow {
   id: string;
   stage_run_id: string;
