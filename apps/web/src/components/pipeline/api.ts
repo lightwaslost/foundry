@@ -222,27 +222,6 @@ export interface Detail {
   /** Where the code started and what Foundry has done to it. An older backend sends neither. */
   code?: CodeInfo;
   activity?: CodeEvent[];
-  /** What the preview site shows. An older backend sends none. */
-  preview?: PreviewSite;
-}
-
-/**
- * The preview site shows one task's website at a time. `current` is whose, and
- * whether Jenkins has finished building it; "other" is a build nobody here asked for.
- */
-export interface PreviewSite {
-  url: string;
-  repo: string;
-  current: {
-    task_id: string | null;
-    ticket: string | null;
-    title: string | null;
-    status: "building" | "ready" | "failed" | "other";
-    sha: string | null;
-    since: string;
-    by: string | null;
-    build_url: string | null;
-  } | null;
 }
 
 /** Where a task's code started, per repository. */
