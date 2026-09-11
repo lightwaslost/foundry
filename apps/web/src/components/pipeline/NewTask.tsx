@@ -128,6 +128,8 @@ export function NewTask({
   // Where the code starts from. Null until someone changes it: the task then takes the
   // team's default, which the server knows and this only displays.
   const [base, setBase] = useState<string | null>(null);
+  // Small keeps every document to a page and the agent's reading narrow.
+  const [size, setSize] = useState<"small" | "normal">("normal");
   const [baseOpen, setBaseOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [branchList, setBranchList] = useState<{
@@ -202,6 +204,7 @@ export function NewTask({
       ...(skipped.length ? { stages: kept.map((st) => st.name) } : {}),
       ...(linked ? { linear_issue: linked.identifier } : {}),
       ...(base ? { base_branch: base } : {}),
+      ...(size === "small" ? { size } : {}),
     });
     setBusy(null);
     if (unauthorized(r)) return;
@@ -210,6 +213,7 @@ export function NewTask({
     setDescription("");
     setLinked(null);
     setBase(null);
+    setSize("normal");
     setBaseOpen(false);
     setPicked(seed.length ? seed : null);
     onCreated(r.task!.id);
@@ -244,7 +248,8 @@ export function NewTask({
     // Divergence from the default, not "more than one" — otherwise seeding the
     // picker would make an untouched dialog prompt on every Escape.
     (picked !== null && picked.join() !== seed.join()) ||
-    skipped.length > 0;
+    skipped.length > 0 ||
+    size !== "normal";
   useEffect(() => {
     onDirtyChange?.(dirty);
   }, [dirty, onDirtyChange]);
@@ -493,6 +498,33 @@ export function NewTask({
             branches={branchList?.branches ?? []}
             chosenNames={cloned.filter((r) => chosen.includes(r.id)).map((r) => r.name)}
           />
+
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Label>Size</Label>
+              {(["normal", "small"] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  aria-pressed={size === v}
+                  onClick={() => setSize(v)}
+                  className={cn(
+                    "rounded-md border px-2 py-0.5 text-[11px]",
+                    size === v
+                      ? "border-primary/40 bg-primary/12 text-foreground"
+                      : "border-border/60 text-muted-foreground hover:bg-accent hover:text-foreground",
+                  )}
+                >
+                  {v === "small" ? "Small" : "Normal"}
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              {size === "small"
+                ? "A bug fix or a change to one screen: documents stay to a page and the agent reads only what the change touches."
+                : "Anything bigger. When you talk it through, the agent picks the size for you."}
+            </p>
+          </div>
 
           {err ? <p className="text-xs text-destructive-foreground">{err}</p> : null}
         </div>

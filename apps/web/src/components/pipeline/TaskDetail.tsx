@@ -220,6 +220,11 @@ export function TaskDetail({
                 onOpenArtifact={(meta) => setView({ kind: "artifact", meta })}
                 onDiff={(fromId, toId) => setView({ kind: "diff", fromId, toId })}
                 onRetry={() => void act(`/api/runs/${focus.id}/retry`)}
+                canFix={(() => {
+                  const st = task.pipeline_snapshot;
+                  const at = st.findIndex((x) => x.name === focus.stage);
+                  return st.slice(0, Math.max(at, 0)).some((x) => x.output.kind === "pull_request");
+                })()}
                 onBuildOld={() => void act(`/api/runs/${focus.id}/retry`, { update: false })}
                 steps={(detail?.activity ?? []).filter((e) => e.stage_run_id === focus.id)}
                 onCancel={() => void act(`/api/runs/${focus.id}/cancel`)}
@@ -600,6 +605,7 @@ function NowZone({
   onOpenArtifact,
   onDiff,
   onRetry,
+  canFix,
   onBuildOld,
   steps,
   onCancel,
@@ -616,6 +622,8 @@ function NowZone({
   onDiff: (fromId: string, toId: string) => void;
   onRetry: () => void;
   /** Retry without bringing the task up to date: "build on the old version". */
+  /** Whether a build comes before this stage. */
+  canFix: boolean;
   onBuildOld: () => void;
   /** What Foundry did to the code for this run. */
   steps: CodeEvent[];
@@ -715,6 +723,7 @@ function NowZone({
             gate={gate}
             artifact={artifact}
             stale={run.stale_inputs}
+            canFix={canFix}
             onDecided={onChanged}
             className="border-0 bg-transparent"
           />

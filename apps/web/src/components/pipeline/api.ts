@@ -152,6 +152,8 @@ export interface Run {
   test_exit_code: number | null;
   /** Documents this run was built from that have a newer version now. An older backend sends none. */
   stale_inputs?: Array<{ stage: string; built_from: number; latest: number }>;
+  /** What the agent said when its conversation last stopped. */
+  agent_said?: string | null;
 }
 
 /**

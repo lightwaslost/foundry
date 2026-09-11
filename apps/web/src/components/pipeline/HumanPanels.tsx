@@ -118,6 +118,7 @@ export function GateActions({
   onEdit,
   onRevise,
   onReject,
+  onFix,
 }: {
   busy?: boolean;
   hasArtifact?: boolean;
@@ -125,6 +126,8 @@ export function GateActions({
   onEdit: () => void;
   onRevise: () => void;
   onReject: () => void;
+  /** Present on a stage that reviews a build: send what it found back to the build. */
+  onFix?: (() => void) | undefined;
 }) {
   return (
     <div className="flex flex-wrap gap-1.5">
@@ -137,6 +140,11 @@ export function GateActions({
       <Button size="xs" variant="outline" onClick={onRevise} disabled={busy}>
         <Undo2Icon /> Send back
       </Button>
+      {onFix ? (
+        <Button size="xs" variant="outline" onClick={onFix} disabled={busy}>
+          <Undo2Icon /> Fix these in build
+        </Button>
+      ) : null}
       <Button size="xs" variant="destructive-outline" onClick={onReject} disabled={busy}>
         <XIcon /> Reject
       </Button>
@@ -237,6 +245,7 @@ export function GatePanel({
   gate,
   artifact,
   stale,
+  canFix = false,
   onDecided,
   className,
 }: {
@@ -244,6 +253,8 @@ export function GatePanel({
   artifact: ArtifactMeta | undefined;
   /** Earlier documents that changed after this stage was built from them. */
   stale?: Array<{ stage: string; built_from: number; latest: number }> | undefined;
+  /** Whether a build comes before this stage, so its findings can go back to it. */
+  canFix?: boolean;
   onDecided: () => void;
   className?: string;
 }) {
@@ -253,7 +264,7 @@ export function GatePanel({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const decide = async (
-    decision: "approve" | "revise" | "reject",
+    decision: "approve" | "revise" | "reject" | "fix",
     extra: Record<string, unknown> = {},
   ) => {
     setBusy(true);
@@ -303,6 +314,7 @@ export function GatePanel({
             onEdit={() => void startEdit()}
             onRevise={() => setMode("revise")}
             onReject={() => setMode("reject")}
+            onFix={canFix ? () => void decide("fix") : undefined}
           />
         ) : null}
 

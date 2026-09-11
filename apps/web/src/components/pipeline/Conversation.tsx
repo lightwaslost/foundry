@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "~/components/ui/button";
 import { Spinner } from "~/components/ui/spinner";
-import { Textarea } from "~/components/ui/textarea";
-import { CheckIcon, MessageSquareIcon, SendIcon } from "lucide-react";
+import { CheckIcon, MessageSquareIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Link } from "@tanstack/react-router";
 import { call, post, unauthorized, type Run } from "./api";
@@ -12,26 +11,16 @@ interface Draft {
   bytes: number;
 }
 
-interface Turn {
-  body: string;
-  author: string | null;
-  created_at: string;
-  message_id: string | null;
-}
-
 /**
- * Talking to a stage instead of filling in a form.
+ * A stage that is a conversation.
  *
- * The one-pager stage asked eighteen of the twenty-five questions this system has
- * ever asked, one at a time, each one a separate interruption. Here the stage stays
- * open and the conversation happens while the context is still loaded.
- *
- * Two things this deliberately does not do. It does not show the agent's replies —
- * those live in the T3 thread, which is a better transcript than anything repeated
- * here, and the link goes straight to it. And it does not end the conversation on
- * the agent's say-so: the agent proposes by writing the document, and accepting it
- * is a separate act, because "I think I have enough" and "yes, that is right" are
- * not the same claim.
+ * The conversation happens in T3, where the context is: that is where people read
+ * what the agent did and answer it, so there is no reply box here -- a second place
+ * to type into a conversation you have to open anyway was only ever a detour. This
+ * says whether the agent is waiting on you and what it asked, takes you straight to
+ * the thread, and holds the one thing only Foundry can do: accept what was written.
+ * Accepting stays a separate act, because "I think I have enough" and "yes, that is
+ * right" are not the same claim.
  */
 export function ConversationPanel({
   run,
@@ -47,14 +36,13 @@ export function ConversationPanel({
    *  asking the artifacts says "nothing written" loudest at the moment something is. */
   onDraft?: (exists: boolean) => void;
 }) {
-  const [turns, setTurns] = useState<Turn[] | null>(null);
+  // What the agent said when it last stopped -- its question, usually at the end.
+  const [said, setSaid] = useState<string | null>(null);
   // Whether the agent has written its deliverable yet — read from the worktree, not
   // from an artifact, because artifacts are only created once you accept.
   const [draft, setDraft] = useState<Draft | null>(null);
-  const [reply, setReply] = useState("");
-  const [busy, setBusy] = useState<"say" | "finish" | null>(null);
+  const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const box = useRef<HTMLTextAreaElement>(null);
   // Held in a ref so an inline arrow at the call site does not restart the poll
   // interval on every render of the parent.
   const onDraftRef = useRef(onDraft);
@@ -65,17 +53,16 @@ export function ConversationPanel({
   useEffect(() => {
     let live = true;
     const load = () =>
-      void call<{ turns: Turn[]; draft: Draft | null }>(`/api/runs/${run.id}/conversation`).then(
-        (r) => {
-          if (live && !unauthorized(r)) {
-            setTurns(r.turns);
-            setDraft(r.draft);
-            onDraftRef.current?.(r.draft !== null);
-          }
-        },
-      );
+      void call<{ said?: string | null; draft: Draft | null }>(
+        `/api/runs/${run.id}/conversation`,
+      ).then((r) => {
+        if (live && !unauthorized(r)) {
+          setSaid(r.said ?? null);
+          setDraft(r.draft);
+          onDraftRef.current?.(r.draft !== null);
+        }
+      });
     load();
-    // While the agent has the turn, its reply is what we are waiting for.
     const t = setInterval(load, waiting ? 8000 : 3000);
     return () => {
       live = false;
@@ -83,120 +70,77 @@ export function ConversationPanel({
     };
   }, [run.id, waiting]);
 
-  const say = async () => {
-    const text = reply.trim();
-    if (!text) return;
-    setBusy("say");
+  const finish = async () => {
+    setBusy(true);
     setErr(null);
-    const r = await post<{ error?: string }>(`/api/runs/${run.id}/say`, { text });
-    setBusy(null);
+    const r = await post<{ error?: string }>(`/api/runs/${run.id}/finish`);
+    setBusy(false);
     if (unauthorized(r)) return;
     if (r.error) return setErr(r.error);
-    setReply("");
     onChanged();
   };
 
-  const finish = async () => {
-    setBusy("finish");
-    setErr(null);
-    const r = await post<{ error?: string }>(`/api/runs/${run.id}/finish`);
-    setBusy(null);
-    if (unauthorized(r)) return;
-    if (r.error) return setErr(r.error);
-    onChanged();
-  };
+  // Its last lines, where the question is: enough to know what it wants before you open it.
+  const asked = (said ?? "")
+    .split("\n")
+    .map((l) => l.trimEnd())
+    .filter((l) => l.trim())
+    .slice(-8)
+    .join("\n");
 
   return (
     <div className="rounded-lg border border-border/60 bg-card/30">
       <div className="flex items-center gap-2 border-b border-border/50 px-2.5 py-2">
         <MessageSquareIcon aria-hidden className="size-3.5 text-muted-foreground" />
         <span className="text-[13px] font-medium text-foreground">
-          {waiting ? "Your turn" : "The agent is replying"}
+          {waiting ? "The agent is waiting on you" : "The agent is working"}
         </span>
-        {envId && run.t3_thread_id ? (
-          <Link
-            to="/$environmentId/$threadId"
-            params={{ environmentId: envId, threadId: run.t3_thread_id }}
-            className="ml-auto font-mono text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-          >
-            read the thread
-          </Link>
-        ) : null}
       </div>
-
-      {turns === null ? (
-        <div className="px-2.5 py-3">
-          <Spinner />
-        </div>
-      ) : (
-        <div className="max-h-56 space-y-1.5 overflow-y-auto px-2.5 py-2 scrollbar-none">
-          {turns.length === 0 ? (
-            <p className="text-[12px] leading-snug text-muted-foreground">
-              The agent has asked its first questions in the thread. Answer here and it carries on.
-            </p>
-          ) : (
-            turns.map((t, i) => (
-              <div key={`${t.created_at}-${i}`} className="text-[12px] leading-snug">
-                <span className="font-medium text-foreground">{t.author ?? "someone"}</span>
-                <span
-                  className={cn(
-                    "ml-1.5 whitespace-pre-wrap",
-                    t.message_id ? "text-muted-foreground" : "text-muted-foreground/60 italic",
-                  )}
-                >
-                  {t.body}
-                </span>
-                {t.message_id ? null : (
-                  <span className="ml-1 text-[10px] text-muted-foreground/60">(sending…)</span>
-                )}
-              </div>
-            ))
-          )}
-        </div>
-      )}
-
-      <div className="space-y-1.5 border-t border-border/50 px-2.5 py-2">
-        <Textarea
-          ref={box}
-          size="sm"
-          className="max-h-40"
-          disabled={!waiting || busy !== null}
-          placeholder={
-            waiting
-              ? "Answer, or tell it what to change. ⌘↵ to send."
-              : "The agent has the turn — it will hand back when it stops."
-          }
-          value={reply}
-          onChange={(e) => setReply(e.target.value)}
-          onKeyDown={(e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-              e.preventDefault();
-              void say();
-            }
-          }}
-        />
-        <div className="flex items-center gap-1.5">
+      <div className="space-y-2 px-2.5 py-2">
+        {waiting && asked ? (
+          <p className="max-h-40 overflow-y-auto border-l-2 border-border pl-2 text-[12px] leading-snug whitespace-pre-wrap text-muted-foreground">
+            {asked}
+          </p>
+        ) : (
+          <p className="text-[12px] leading-snug text-muted-foreground">
+            {waiting
+              ? "It asked something in the conversation."
+              : "It stops and waits whenever it needs you, and Slack tells you when it does."}
+          </p>
+        )}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {envId && run.t3_thread_id ? (
+            <Button
+              size="xs"
+              render={
+                <Link
+                  to="/$environmentId/$threadId"
+                  params={{ environmentId: envId, threadId: run.t3_thread_id }}
+                />
+              }
+            >
+              <MessageSquareIcon /> Open the conversation
+            </Button>
+          ) : null}
           <Button
             size="xs"
-            onClick={() => void say()}
-            disabled={!waiting || busy !== null || !reply.trim()}
-          >
-            {busy === "say" ? <Spinner /> : <SendIcon />}Send
-          </Button>
-          <Button
-            size="xs"
-            variant={draft ? "default" : "ghost-muted"}
+            variant={draft ? "outline" : "ghost-muted"}
             onClick={() => void finish()}
-            disabled={!waiting || busy !== null}
+            disabled={!waiting || busy}
             title={
               draft
                 ? `Accept ${draft.file} and move on`
                 : "The agent has not written anything yet — you can still finish, but there will be no document"
             }
           >
-            {busy === "finish" ? <Spinner /> : <CheckIcon />}Looks right
+            {busy ? <Spinner /> : <CheckIcon />}Looks right
           </Button>
-          <span className="ml-auto text-[11px] text-muted-foreground">
+          <span
+            className={cn(
+              "ml-auto text-[11px]",
+              draft ? "text-foreground" : "text-muted-foreground",
+            )}
+          >
             {draft ? `${draft.file} is ready to read` : "nothing written yet"}
           </span>
         </div>
