@@ -9,6 +9,7 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   ExternalLinkIcon,
+  EyeIcon,
   FileTextIcon,
   ImageIcon,
   Maximize2Icon,
@@ -37,6 +38,7 @@ import {
   toneOf,
   type ArtifactMeta,
   type Detail,
+  type PreviewSite,
   type GateRow,
   type Repo,
   type Run,
@@ -308,6 +310,7 @@ export function TaskDetail({
     <div ref={root} className="flex h-full min-h-0 flex-col">
       <Header
         task={task}
+        preview={detail?.preview}
         runs={runs}
         focus={focus}
         repos={repos}
@@ -370,6 +373,7 @@ function focusRun(runs: Run[]): Run | null {
  */
 function Header({
   task,
+  preview,
   runs,
   focus,
   repos,
@@ -382,6 +386,7 @@ function Header({
   onChanged,
 }: {
   task: Task;
+  preview?: PreviewSite | undefined;
   runs: Run[];
   focus: Run | null;
   repos: Repo[];
@@ -410,6 +415,8 @@ function Header({
   const assignee = users.find((u) => u.id === task.assignee_id);
   // On the task itself, so they are there at every stage after the build opens them.
   const prs = taskPrs(runs);
+  // Only once the website's code is on GitHub: the preview is built from there.
+  const previewable = preview ? prs.some((p) => p.label.startsWith(`${preview.repo} #`)) : false;
 
   return (
     <header className="shrink-0 border-b border-border/50 py-3 pr-2 pl-4">
@@ -529,6 +536,9 @@ function Header({
               <GitPullRequestIcon /> {pr.label}
             </Button>
           ))}
+          {preview && previewable ? (
+            <PreviewButton task={task} site={preview} now={now} onChanged={onChanged} />
+          ) : null}
         </div>
       ) : null}
 
@@ -1235,5 +1245,78 @@ function ClashChoices({
         again.
       </p>
     </div>
+  );
+}
+
+/**
+ * The preview site shows one task's website at a time, so putting this task there
+ * replaces someone's: say whose first. Jenkins takes about fifteen minutes.
+ */
+function PreviewButton({
+  task,
+  site,
+  now,
+  onChanged,
+}: {
+  task: Task;
+  site: PreviewSite;
+  now: number;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const cur = site.current;
+  const mine = cur?.task_id === task.id ? cur : null;
+  const host = site.url.replace(/^https?:\/\//, "");
+
+  const put = async () => {
+    if (cur && !mine && cur.status !== "failed") {
+      const whose = cur.ticket
+        ? `${cur.ticket}${cur.by ? ` (put there by ${cur.by})` : ""}`
+        : "Someone else's build";
+      if (!window.confirm(`${whose} is on the preview. Replace it with this task?`)) return;
+    }
+    setBusy(true);
+    setError(null);
+    const r = await post<{ error?: string }>(`/api/tasks/${task.id}/preview`);
+    setBusy(false);
+    if (!unauthorized(r) && r.error) setError(r.error);
+    onChanged();
+  };
+
+  if (mine?.status === "building") {
+    return (
+      <Button size="xs" variant="outline" disabled title="Jenkins takes about 15 minutes">
+        <Spinner /> Preview building · {duration(now - Date.parse(mine.since))}
+      </Button>
+    );
+  }
+  return (
+    <>
+      {mine?.status === "ready" ? (
+        <Button
+          size="xs"
+          variant="outline"
+          render={<a href={site.url} target="_blank" rel="noreferrer" />}
+        >
+          <EyeIcon /> On preview · {host}
+        </Button>
+      ) : null}
+      <Button
+        size="xs"
+        variant={mine?.status === "ready" ? "ghost-muted" : "outline"}
+        disabled={busy}
+        onClick={put}
+        title={`Builds this task's website into ${host}`}
+      >
+        {busy ? <Spinner /> : mine ? <RotateCwIcon /> : <EyeIcon />}
+        {mine?.status === "failed"
+          ? "Preview failed · try again"
+          : mine
+            ? "Update preview"
+            : "Put on preview"}
+      </Button>
+      {error ? <span className="text-[11px] text-destructive">{error}</span> : null}
+    </>
   );
 }
