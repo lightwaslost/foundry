@@ -763,7 +763,13 @@ function RunActions({
     artifact && versions.length > 1
       ? (versions.find((v) => v.version === artifact.version - 1) ?? null)
       : null;
-  if (!artifact && !run.pr_url && !(run.t3_thread_id && envId) && !children) return null;
+  // One per repository the build changed; an older backend only knows the primary's.
+  const prs = run.prs?.length
+    ? run.prs.map((p) => ({ url: p.url, label: `${p.repo} #${p.number}` }))
+    : run.pr_url
+      ? [{ url: run.pr_url, label: "Pull request" }]
+      : [];
+  if (!artifact && prs.length === 0 && !(run.t3_thread_id && envId) && !children) return null;
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {artifact ? (
@@ -783,15 +789,16 @@ function RunActions({
           What changed
         </Button>
       ) : null}
-      {run.pr_url ? (
+      {prs.map((pr) => (
         <Button
+          key={pr.url}
           size="xs"
           variant="outline"
-          render={<a href={run.pr_url} target="_blank" rel="noreferrer" />}
+          render={<a href={pr.url} target="_blank" rel="noreferrer" />}
         >
-          <GitPullRequestIcon /> Pull request
+          <GitPullRequestIcon /> {pr.label}
         </Button>
-      ) : null}
+      ))}
       {run.t3_thread_id && envId ? (
         <Button
           size="xs"

@@ -140,6 +140,8 @@ export interface Run {
   head_sha: string | null;
   artifact_id: string | null;
   pr_url: string | null;
+  /** Every pull request this run opened, one per repository, primary first. An older backend sends none. */
+  prs?: Array<{ repo: string; url: string; number: number }>;
   park_reason: string | null;
   park_detail: unknown;
   finished_at: string | null;
