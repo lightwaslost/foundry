@@ -584,7 +584,9 @@ function PipelinePage() {
                 {visible.filter((t) => t.state === "open").length} open ·{" "}
                 {visible.filter((t) => t.state === "done").length} shipped
                 {(() => {
-                  const n = visible.filter((t) => t.state === "rejected" || t.state === "cancelled").length;
+                  const n = visible.filter(
+                    (t) => t.state === "rejected" || t.state === "cancelled",
+                  ).length;
                   return n ? ` · ${n} rejected` : "";
                 })()}
                 {filtered ? ` · ${tasks.length - visible.length} hidden` : ""}
@@ -738,7 +740,16 @@ function PipelinePage() {
         <DialogPopup className="max-w-4xl p-0" aria-label="New task">
           <NewTask
             defaultRepos={defaultRepos}
-            onTalk={async (title, repoId, extraRepoIds, assigneeId, files, brief, linearIssue) => {
+            onTalk={async (
+              title,
+              repoId,
+              extraRepoIds,
+              assigneeId,
+              files,
+              brief,
+              linearIssue,
+              baseBranch,
+            ) => {
               const r = await post<{ draft?: Draft; error?: string }>("/api/drafts", {
                 title,
                 repo_id: repoId,
@@ -746,6 +757,7 @@ function PipelinePage() {
                 assignee_id: assigneeId,
                 brief,
                 ...(linearIssue ? { linear_issue: linearIssue } : {}),
+                ...(baseBranch ? { base_branch: baseBranch } : {}),
               });
               if (unauthorized(r)) return "your session expired — sign in again";
               if (r.error || !r.draft) return r.error ?? "could not start the conversation";

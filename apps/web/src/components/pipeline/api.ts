@@ -104,6 +104,10 @@ export interface Task {
   stage: string | null;
   state: "open" | "done" | "rejected" | "cancelled";
   created_at: string;
+  /** Where the code starts from and goes back into; null means each repository's own default. */
+  base_branch?: string | null;
+  /** Whether a build first brings the task's own work up to date. */
+  catch_up?: boolean;
 }
 
 export type RunState =
@@ -213,6 +217,61 @@ export interface Detail {
   gates: GateRow[];
   artifacts: ArtifactMeta[];
   notices?: TokenNotice[];
+  /** Where the code started and what Foundry has done to it. An older backend sends neither. */
+  code?: CodeInfo;
+  activity?: CodeEvent[];
+}
+
+/** Where a task's code started, per repository. */
+export interface CodeInfo {
+  base: string | null;
+  catch_up: boolean;
+  branch: string;
+  repos: Array<{ name: string; base: string; base_sha: string | null; is_primary: boolean }>;
+}
+
+/** One thing Foundry did to a task's code. */
+export interface CodeEvent {
+  id: string;
+  kind: string;
+  stage_run_id: string | null;
+  created_at: string;
+  payload: {
+    repo?: string;
+    base?: string;
+    sha?: string;
+    replayed?: number;
+    new_on_base?: number;
+    kept?: number;
+    why?: string;
+  } | null;
+}
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/** One plain sentence per thing Foundry did to a task's code — what an engineer would want to be told. */
+export function describeCodeEvent(e: CodeEvent): string {
+  const p = e.payload ?? {};
+  const repo = p.repo ? `${p.repo}: ` : "";
+  switch (e.kind) {
+    case "branch.started":
+      return `${repo}started from ${p.base ?? "its base"}${p.sha ? ` (${p.sha.slice(0, 7)})` : ""}.`;
+    case "branch.updated": {
+      const what = [
+        p.new_on_base ? `${plural(p.new_on_base, "new change")} from teammates on ${p.base}` : null,
+        p.kept ? `kept ${plural(p.kept, "change")} someone pushed to this branch` : null,
+      ].filter(Boolean);
+      return `${repo}brought up to date with ${p.base ?? "its base"} before the build${what.length ? `: ${what.join("; ")}` : ""}.`;
+    }
+    case "branch.update_skipped":
+      return "Chosen: build on the version the task started from, without bringing it up to date.";
+    case "repo.left_out":
+      return `${p.repo ?? "A repository"} left out: ${p.why ?? "it doesn't have the starting branch"}. Readable, no changes.`;
+    case "stage.parked":
+      return "Stopped: this task's changes clash with work already on its base branch.";
+    default:
+      return e.kind;
+  }
 }
 
 export interface Comment {
@@ -425,6 +484,7 @@ export function bannerFor(state: RunState, hasDraft: boolean): string {
 
 /** Why a run parked, in words a person can act on. */
 export const PARK_REASON: Record<string, string> = {
+  merge_conflict: "This task's changes clash with work already on its base branch",
   timeout: "Ran past its time limit",
   turn_error: "The agent's session failed",
   setup_failed: "The repository could not install its dependencies",

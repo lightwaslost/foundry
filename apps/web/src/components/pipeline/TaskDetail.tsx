@@ -44,6 +44,9 @@ import {
   type TokenNotice,
   type User,
   unauthorized,
+  type CodeEvent,
+  type CodeInfo,
+  describeCodeEvent,
 } from "./api";
 import { ArtifactViewer, DiffView } from "./Artifact";
 import { ConversationPanel } from "./Conversation";
@@ -141,10 +144,10 @@ export function TaskDetail({
     setError(null);
   }, [task.id]);
 
-  const act = async (path: string) => {
+  const act = async (path: string, body?: Record<string, unknown>) => {
     setBusy(true);
     setError(null);
-    const r = await post<{ error?: string }>(path);
+    const r = await post<{ error?: string }>(path, body);
     setBusy(false);
     if (!unauthorized(r) && r.error) setError(r.error);
     onChanged();
@@ -199,6 +202,7 @@ export function TaskDetail({
         />
       ) : (
         <>
+          <CodeLine code={detail?.code} />
           <TokenNotices notices={detail?.notices ?? []} />
           {focus ? (
             <div ref={nowZone}>
@@ -216,12 +220,33 @@ export function TaskDetail({
                 onOpenArtifact={(meta) => setView({ kind: "artifact", meta })}
                 onDiff={(fromId, toId) => setView({ kind: "diff", fromId, toId })}
                 onRetry={() => void act(`/api/runs/${focus.id}/retry`)}
+                onBuildOld={() => void act(`/api/runs/${focus.id}/retry`, { update: false })}
+                steps={(detail?.activity ?? []).filter((e) => e.stage_run_id === focus.id)}
                 onCancel={() => void act(`/api/runs/${focus.id}/cancel`)}
                 onChanged={onChanged}
               />
             </div>
           ) : null}
 
+          {detail?.activity?.length ? (
+            <Fold title="Code activity" count={`${detail.activity.length}`}>
+              <ol className="space-y-1 px-3 py-2 text-[12px]">
+                {detail.activity.map((e) => (
+                  <li key={e.id} className="flex gap-2">
+                    <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+                      {new Date(e.created_at).toLocaleString([], {
+                        month: "2-digit",
+                        day: "2-digit",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                    <span className="text-foreground">{describeCodeEvent(e)}</span>
+                  </li>
+                ))}
+              </ol>
+            </Fold>
+          ) : null}
           <Fold title="History" count={`${runs.length} ${runs.length === 1 ? "run" : "runs"}`}>
             <ol>
               {runs.map((run) => (
@@ -575,6 +600,8 @@ function NowZone({
   onOpenArtifact,
   onDiff,
   onRetry,
+  onBuildOld,
+  steps,
   onCancel,
   onChanged,
 }: {
@@ -588,6 +615,10 @@ function NowZone({
   onOpenArtifact: (meta: ArtifactMeta) => void;
   onDiff: (fromId: string, toId: string) => void;
   onRetry: () => void;
+  /** Retry without bringing the task up to date: "build on the old version". */
+  onBuildOld: () => void;
+  /** What Foundry did to the code for this run. */
+  steps: CodeEvent[];
   onCancel: () => void;
   onChanged: () => void;
 }) {
@@ -633,9 +664,22 @@ function NowZone({
       <div className="space-y-2 px-3 py-2.5">
         <RunMeta run={run} now={now} />
 
+        {steps.length ? (
+          <ul className="space-y-0.5 text-[12px] text-muted-foreground">
+            {[...steps].reverse().map((e) => (
+              <li key={e.id} className="flex gap-1.5">
+                <span aria-hidden>·</span>
+                <span>{describeCodeEvent(e)}</span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
         {/* A parked run still has a thread worth reading — that is usually the
             first thing you want — so the reason and the ways in sit together. */}
-        {run.park_reason ? <ParkNotice run={run} /> : null}
+        {run.park_reason ? (
+          <ParkNotice run={run} busy={busy} onRetry={onRetry} onBuildOld={onBuildOld} />
+        ) : null}
 
         <RunActions
           run={run}
@@ -726,7 +770,18 @@ function RunMeta({ run, now }: { run: Run; now: number }) {
   );
 }
 
-function ParkNotice({ run }: { run: Run }) {
+function ParkNotice({
+  run,
+  busy = false,
+  onRetry,
+  onBuildOld,
+}: {
+  run: Run;
+  busy?: boolean;
+  /** Present where the run can be retried from: the clash choices show only there. */
+  onRetry?: () => void;
+  onBuildOld?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const park = run.park_reason ? (PARK_REASON[run.park_reason] ?? run.park_reason) : null;
   if (!park) return null;
@@ -736,6 +791,9 @@ function ParkNotice({ run }: { run: Run }) {
       <p className="mt-0.5 text-[11px] text-muted-foreground">
         Nothing retries on its own. Fix what caused it, then run this stage again.
       </p>
+      {run.park_reason === "merge_conflict" && onRetry && onBuildOld ? (
+        <ClashChoices run={run} busy={busy} onRetry={onRetry} onBuildOld={onBuildOld} />
+      ) : null}
       {run.park_detail ? (
         <>
           <Button
@@ -1096,3 +1154,62 @@ function StartCard({ task, busy, onStart }: { task: Task; busy: boolean; onStart
 }
 
 export { duration };
+
+/**
+ * Where the task's code started and whether Foundry keeps it up to date, always on
+ * screen: an engineer should never have to guess what the branch is built on.
+ */
+function CodeLine({ code }: { code: CodeInfo | undefined }) {
+  if (!code || code.repos.length === 0) return null;
+  const bases = [...new Set(code.repos.map((r) => r.base))];
+  const sha = (code.repos.find((r) => r.is_primary) ?? code.repos[0])?.base_sha;
+  return (
+    <p className="mx-2 mt-2 font-mono text-[11px] text-muted-foreground">
+      <span className="text-foreground">Code</span> starts from {bases.join(" / ")}
+      {sha ? ` (${sha.slice(0, 7)})` : ""} · branch {code.branch} ·{" "}
+      {code.catch_up
+        ? "brought up to date before each build"
+        : "builds on the version it started from"}
+    </p>
+  );
+}
+
+/** A clash with the base: what clashed, that nothing changed, and the two ways on. */
+function ClashChoices({
+  run,
+  busy,
+  onRetry,
+  onBuildOld,
+}: {
+  run: Run;
+  busy: boolean;
+  onRetry: () => void;
+  onBuildOld: () => void;
+}) {
+  const detail = (run.park_detail ?? {}) as { repo?: string; files?: string[] };
+  return (
+    <div className="mt-1.5 space-y-1.5">
+      <p className="text-[12px] text-foreground">
+        Nothing was changed — the task is exactly as it was. The clashing files
+        {detail.repo ? ` in ${detail.repo}` : ""}:
+      </p>
+      <ul className="font-mono text-[11px] text-muted-foreground">
+        {(detail.files ?? []).map((f) => (
+          <li key={f}>{f}</li>
+        ))}
+      </ul>
+      <div className="flex flex-wrap gap-1.5">
+        <Button size="xs" variant="outline" disabled={busy} onClick={onBuildOld}>
+          Build on the old version
+        </Button>
+        <Button size="xs" variant="ghost-muted" disabled={busy} onClick={onRetry}>
+          Try again
+        </Button>
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        To keep the latest instead, resolve the clash on the branch (or ask an engineer), then try
+        again.
+      </p>
+    </div>
+  );
+}

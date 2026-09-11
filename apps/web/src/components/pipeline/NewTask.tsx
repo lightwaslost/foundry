@@ -25,6 +25,7 @@ import {
   type StageDef,
   type Task,
   type User,
+  call,
 } from "./api";
 import { LinearPicker } from "./LinearPicker";
 import { stageSummary } from "./StageFields";
@@ -86,6 +87,8 @@ export function NewTask({
     /** The context box — the agent reads it on its first turn, beside the title. */
     brief: string,
     linearIssue: string | null,
+    /** Where the task's code will start from; null means the team's default. */
+    baseBranch?: string | null,
   ) => Promise<string | null>;
   onCreated: (id: string) => void;
   onCancel: () => void;
@@ -122,6 +125,22 @@ export function NewTask({
   const [files, setFiles] = useState<File[]>([]);
   const filePicker = useRef<HTMLInputElement>(null);
   const [err, setErr] = useState<string | null>(null);
+  // Where the code starts from. Null until someone changes it: the task then takes the
+  // team's default, which the server knows and this only displays.
+  const [base, setBase] = useState<string | null>(null);
+  const [baseOpen, setBaseOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [branchList, setBranchList] = useState<{
+    default: string | null;
+    branches: Array<{ name: string; repos: string[] }>;
+  } | null>(null);
+  useEffect(() => {
+    void call<{ default: string | null; branches: Array<{ name: string; repos: string[] }> }>(
+      "/api/branches",
+    ).then((r) => {
+      if (!unauthorized(r) && Array.isArray(r.branches)) setBranchList(r);
+    });
+  }, []);
 
   const cloned = useMemo(() => repos.filter((r) => r.clone_state === "cloned"), [repos]);
   // What an untouched dialog starts with: the team's repositories, main first, or
@@ -182,6 +201,7 @@ export function NewTask({
       // exactly the body it always did.
       ...(skipped.length ? { stages: kept.map((st) => st.name) } : {}),
       ...(linked ? { linear_issue: linked.identifier } : {}),
+      ...(base ? { base_branch: base } : {}),
     });
     setBusy(null);
     if (unauthorized(r)) return;
@@ -189,6 +209,8 @@ export function NewTask({
     setTitle("");
     setDescription("");
     setLinked(null);
+    setBase(null);
+    setBaseOpen(false);
     setPicked(seed.length ? seed : null);
     onCreated(r.task!.id);
   };
@@ -206,6 +228,7 @@ export function NewTask({
       files,
       description,
       linked?.identifier ?? null,
+      base,
     );
     setBusy(null);
     if (failure) setErr(failure);
@@ -453,6 +476,24 @@ export function NewTask({
             </div>
           ) : null}
 
+          <StartsFrom
+            base={base ?? branchList?.default ?? null}
+            changed={base !== null}
+            open={baseOpen}
+            onOpen={() => setBaseOpen((v) => !v)}
+            query={query}
+            onQuery={(v) => {
+              setQuery(v);
+              if (branchList?.branches.some((b) => b.name === v)) setBase(v);
+            }}
+            onPick={(name) => {
+              setBase(name);
+              setQuery("");
+            }}
+            branches={branchList?.branches ?? []}
+            chosenNames={cloned.filter((r) => chosen.includes(r.id)).map((r) => r.name)}
+          />
+
           {err ? <p className="text-xs text-destructive-foreground">{err}</p> : null}
         </div>
 
@@ -541,5 +582,103 @@ export function NewTask({
         </span>
       </footer>
     </section>
+  );
+}
+
+/**
+ * Where the task's code starts from, and where its pull requests go back into.
+ * Collapsed by default: most tasks start from the team's default and nobody should
+ * have to think about it. Opened, it says plainly what the choice does.
+ */
+function StartsFrom({
+  base,
+  changed,
+  open,
+  onOpen,
+  query,
+  onQuery,
+  onPick,
+  branches,
+  chosenNames,
+}: {
+  base: string | null;
+  changed: boolean;
+  open: boolean;
+  onOpen: () => void;
+  query: string;
+  onQuery: (v: string) => void;
+  onPick: (name: string) => void;
+  branches: Array<{ name: string; repos: string[] }>;
+  chosenNames: string[];
+}) {
+  const here = branches.find((b) => b.name === base);
+  const leftOut = here ? chosenNames.filter((n) => !here.repos.includes(n)) : [];
+  const quick = [...new Set(["dev", "main"].filter((n) => branches.some((b) => b.name === n)))];
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2">
+        <Label>Starts from</Label>
+        <span className="font-mono text-[12px] text-foreground">
+          {base ?? "each repository's default branch"}
+        </span>
+        <span className="text-[11px] text-muted-foreground">
+          {changed ? "chosen" : "latest, the default"}
+        </span>
+        <button
+          type="button"
+          className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          onClick={onOpen}
+        >
+          {open ? "done" : "change"}
+        </button>
+      </div>
+      {open ? (
+        <div className="space-y-1.5 rounded-md border border-border/60 p-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {quick.map((n) => (
+              <button
+                key={n}
+                type="button"
+                aria-pressed={base === n}
+                onClick={() => onPick(n)}
+                className={cn(
+                  "rounded-md border px-2 py-0.5 font-mono text-[11px]",
+                  base === n
+                    ? "border-primary/40 bg-primary/12 text-foreground"
+                    : "border-border/60 text-muted-foreground hover:bg-accent hover:text-foreground",
+                )}
+              >
+                {n}
+              </button>
+            ))}
+            <Input
+              list="foundry-branches"
+              value={query}
+              onChange={(e) => onQuery(e.target.value)}
+              placeholder="Search every branch…"
+              className="h-7 min-w-0 flex-1 font-mono text-[12px]"
+            />
+            <datalist id="foundry-branches">
+              {branches.slice(0, 500).map((b) => (
+                <option key={b.name} value={b.name} label={b.repos.join(", ")} />
+              ))}
+            </datalist>
+          </div>
+          {base ? (
+            <p className="text-[11px] text-muted-foreground">
+              Pull requests go back into <span className="font-mono text-foreground">{base}</span>.
+              {leftOut.length
+                ? ` Left out, because they don't have this branch: ${leftOut.join(", ")}. They stay readable and get no changes.`
+                : ""}
+            </p>
+          ) : null}
+          {base === "main" ? (
+            <p className="text-[11px] text-warning-foreground">
+              This skips dev: the work goes towards production without passing through dev first.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
