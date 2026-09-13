@@ -108,6 +108,14 @@ export function NewTask({
     setTitle(f.title);
     setDescription(f.description);
   };
+  // A ticket loads after it is clicked, so it lands on what the form holds by then,
+  // and not at all if Create cleared the form in the meantime.
+  const form = useRef({ title, description, cleared: 0 });
+  useEffect(() => {
+    form.current.title = title;
+    form.current.description = description;
+  }, [title, description]);
+  const cleared = form.current.cleared;
   // Every repository this task may change, in the order they were chosen. The head
   // is the main one: its pull request is the headline and the others link back to
   // it. Keeping that as a position rather than a second piece of
@@ -158,6 +166,13 @@ export function NewTask({
   const repo = chosen[0] ?? "";
   const extras = chosen.slice(1);
   const allPicked = cloned.length > 0 && chosen.length === cloned.length;
+  const mainName = cloned.find((r) => r.id === repo)?.name ?? "";
+  const mainHas = (name: string | null | undefined) =>
+    !!branchList?.branches.find((b) => b.name === name)?.repos.includes(mainName);
+  // As the server does: the team's default gives way to each repository's own when the
+  // main one lacks it, but a branch someone chose is refused outright.
+  const shownBase = base ?? (mainHas(branchList?.default) ? (branchList?.default ?? null) : null);
+  const noBase = base !== null && branchList != null && !mainHas(base);
 
   const toggleRepo = (id: string) =>
     setPicked((prev) => {
@@ -187,7 +202,7 @@ export function NewTask({
     setSkipped((prev) => (prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]));
 
   const submit = async () => {
-    if (!title.trim() || !repo || kept.length === 0) return;
+    if (!title.trim() || !repo || kept.length === 0 || noBase) return;
     setBusy("create");
     setErr(null);
     const common = {
@@ -209,6 +224,7 @@ export function NewTask({
     setBusy(null);
     if (unauthorized(r)) return;
     if (r.error) return setErr(r.error);
+    form.current.cleared++;
     setTitle("");
     setDescription("");
     setLinked(null);
@@ -221,7 +237,7 @@ export function NewTask({
 
   /** Hand the one-liner to an intake agent instead of filling the rest in here. */
   const talk = async () => {
-    if (!onTalk || !title.trim() || !repo) return;
+    if (!onTalk || !title.trim() || !repo || noBase) return;
     setBusy("talk");
     setErr(null);
     const failure = await onTalk(
@@ -301,7 +317,8 @@ export function NewTask({
               onPick={(issue) => {
                 // The picker only shows while nothing is linked, and unlinking already
                 // took the previous ticket's text out — so a new pick never piles up.
-                const next = applyLinear({ title, description }, issue);
+                if (form.current.cleared !== cleared) return;
+                const next = applyLinear(form.current, issue);
                 setFields(next);
                 setLinked({
                   identifier: issue.identifier,
@@ -482,7 +499,7 @@ export function NewTask({
           ) : null}
 
           <StartsFrom
-            base={base ?? branchList?.default ?? null}
+            base={shownBase}
             changed={base !== null}
             open={baseOpen}
             onOpen={() => setBaseOpen((v) => !v)}
@@ -497,6 +514,8 @@ export function NewTask({
             }}
             branches={branchList?.branches ?? []}
             chosenNames={cloned.filter((r) => chosen.includes(r.id)).map((r) => r.name)}
+            mainName={mainName}
+            noBase={noBase}
           />
 
           <div className="space-y-1">
@@ -593,7 +612,7 @@ export function NewTask({
         <Button
           size="sm"
           onClick={() => void submit()}
-          disabled={busy !== null || !title.trim() || !repo || kept.length === 0}
+          disabled={busy !== null || !title.trim() || !repo || kept.length === 0 || noBase}
         >
           {busy === "create" ? <Spinner /> : null}Create task
         </Button>
@@ -602,7 +621,7 @@ export function NewTask({
             size="sm"
             variant="ghost-muted"
             onClick={() => void talk()}
-            disabled={busy !== null || !title.trim() || !repo}
+            disabled={busy !== null || !title.trim() || !repo || noBase}
           >
             {busy === "talk" ? <Spinner /> : null}Talk it through
           </Button>
@@ -637,6 +656,8 @@ function StartsFrom({
   onPick,
   branches,
   chosenNames,
+  mainName,
+  noBase,
 }: {
   base: string | null;
   changed: boolean;
@@ -647,6 +668,9 @@ function StartsFrom({
   onPick: (name: string) => void;
   branches: Array<{ name: string; repos: string[] }>;
   chosenNames: string[];
+  mainName: string;
+  /** The main repository lacks the chosen branch, which the server refuses. */
+  noBase: boolean;
 }) {
   const here = branches.find((b) => b.name === base);
   const leftOut = here ? chosenNames.filter((n) => !here.repos.includes(n)) : [];
@@ -669,6 +693,11 @@ function StartsFrom({
           {open ? "done" : "change"}
         </button>
       </div>
+      {noBase ? (
+        <p className="text-[11px] text-warning-foreground">
+          {mainName} has no branch "{base}" — pick another branch.
+        </p>
+      ) : null}
       {open ? (
         <div className="space-y-1.5 rounded-md border border-border/60 p-2">
           <div className="flex flex-wrap items-center gap-1.5">
@@ -701,7 +730,7 @@ function StartsFrom({
               ))}
             </datalist>
           </div>
-          {base ? (
+          {base && !noBase ? (
             <p className="text-[11px] text-muted-foreground">
               Pull requests go back into <span className="font-mono text-foreground">{base}</span>.
               {leftOut.length

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { LinkIcon, SearchIcon } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import {
@@ -46,6 +46,10 @@ export function LinearPicker({
     done: [],
   });
   const [status, setStatus] = useState<string | null>(null);
+  // Only the latest click lands: a ticket still loading when another is clicked, or
+  // when the picker goes away, is dropped.
+  const picking = useRef<AbortController | null>(null);
+  useEffect(() => () => picking.current?.abort(), []);
 
   // Also the probe: the first search on mount is what finds out Linear is not set up.
   useEffect(() => {
@@ -82,15 +86,20 @@ export function LinearPicker({
   const keys = [...rows.open, ...rows.done].map((r) => r.identifier);
 
   const pick = async (identifier: string) => {
+    picking.current?.abort();
+    const ctl = (picking.current = new AbortController());
     try {
       const res = await fetch(`${API}/api/linear/issues/${encodeURIComponent(identifier)}`, {
         credentials: "include",
+        signal: ctl.signal,
       });
       if (!res.ok) throw new Error(String(res.status));
-      onPick((await res.json()) as LinearIssue);
+      const issue = (await res.json()) as LinearIssue;
+      if (ctl.signal.aborted) return;
+      onPick(issue);
       setOpen(false);
     } catch {
-      setStatus(`Could not load ${identifier}`);
+      if (!ctl.signal.aborted) setStatus(`Could not load ${identifier}`);
     }
   };
 

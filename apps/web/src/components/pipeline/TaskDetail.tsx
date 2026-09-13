@@ -1198,7 +1198,7 @@ function CodeLine({ code }: { code: CodeInfo | undefined }) {
   );
 }
 
-/** A clash with the base: what clashed, that nothing changed, and the two ways on. */
+/** A clash with the base: what clashed, that GitHub is untouched, and the two ways on. */
 function ClashChoices({
   run,
   busy,
@@ -1214,7 +1214,7 @@ function ClashChoices({
   return (
     <div className="mt-1.5 space-y-1.5">
       <p className="text-[12px] text-foreground">
-        Nothing was changed — the task is exactly as it was. The clashing files
+        Nothing on GitHub was changed. The clashing files
         {detail.repo ? ` in ${detail.repo}` : ""}:
       </p>
       <ul className="font-mono text-[11px] text-muted-foreground">
