@@ -48,6 +48,7 @@ import {
   PinIcon,
   PinOffIcon,
   PlusIcon,
+  ChartColumnIcon,
   KanbanIcon,
   SearchIcon,
   SettingsIcon,
@@ -4359,6 +4360,17 @@ export default function Sidebar() {
             >
               <KanbanIcon className="size-4 shrink-0" />
               <span className="min-w-0 flex-1 truncate text-left">Pipeline</span>
+            </SidebarMenuButton>
+            <SidebarMenuButton
+              onClick={() => {
+                if (isMobile) setOpenMobile(false);
+                void router.navigate({ to: "/team-usage" });
+              }}
+              isActive={router.state.location.pathname.startsWith("/team-usage")}
+              className="ps-[calc(var(--sidebar-row-content-inset)-1px)] focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+            >
+              <ChartColumnIcon className="size-4 shrink-0" />
+              <span className="min-w-0 flex-1 truncate text-left">Team usage</span>
             </SidebarMenuButton>
             {projectGroups.length > 0 ? (
               <div className="flex items-center gap-1">
