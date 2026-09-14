@@ -74,8 +74,8 @@ function TeamUsagePage() {
   const load = useCallback(async () => {
     try {
       const r = await call<Report>(`/api/usage?range=${range}`);
-      if (unauthorized(r)) return setNeedsAuth(true);
-      setReport(r);
+      setNeedsAuth(unauthorized(r));
+      if (!unauthorized(r)) setReport(r);
     } catch (e) {
       setError((e as Error).message);
     }
