@@ -35,6 +35,8 @@ import {
   post,
   toneOf,
   unauthorized,
+  collectionStages,
+  stageColumns,
   type Detail,
   type Draft,
   type DraftView,
@@ -214,6 +216,7 @@ function PipelinePage() {
   const [me, setMe] = useState<User | null>(null);
   const [catalogue, setCatalogue] = useState<Catalogue>({
     stages: [],
+    collections: [],
     version: 0,
     updated_by: null,
     updated_at: null,
@@ -247,6 +250,23 @@ function PipelinePage() {
   const [query, setQuery] = useState("");
   const [filterAssignee, setFilterAssignee] = useState<string | null>(null);
   const [filterRepo, setFilterRepo] = useState<string | null>(null);
+  // Which kind of work the board shows. Remembered per browser; storage can be
+  // unavailable, and the board works the same without it.
+  const [collection, setCollectionState] = useState<string>(() => {
+    try {
+      return localStorage.getItem("foundry.collection") ?? "engineering";
+    } catch {
+      return "engineering";
+    }
+  });
+  const setCollection = (name: string) => {
+    setCollectionState(name);
+    try {
+      localStorage.setItem("foundry.collection", name);
+    } catch {
+      /* the choice just isn't remembered */
+    }
+  };
   const [dragTask, setDragTask] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
@@ -323,6 +343,7 @@ function PipelinePage() {
         // and the Stages tab all map over this, and one of them white-screened
         // production when the two repos deployed out of step.
         stages: Array.isArray(p.stages) ? p.stages : [],
+        collections: Array.isArray(p.collections) ? p.collections : [],
         version: p.version,
         updated_by: p.updated_by,
         updated_at: p.updated_at,
@@ -401,17 +422,31 @@ function PipelinePage() {
     [tasks, refresh],
   );
 
-  const stageNames = useMemo(() => catalogue.stages.map((s) => s.name), [catalogue.stages]);
+  // A collection that no longer exists (renamed, reverted) falls back to the first.
+  const shownCollection = catalogue.collections.some((c) => c.name === collection)
+    ? collection
+    : (catalogue.collections[0]?.name ?? null);
+  const stageNames = useMemo(
+    () =>
+      shownCollection
+        ? collectionStages(catalogue, shownCollection).map((s) => s.name)
+        : catalogue.stages.map((s) => s.name), // an older backend, with no collections
+    [catalogue, shownCollection],
+  );
+  const inCollection = useMemo(
+    () => (shownCollection ? tasks.filter((t) => t.pipeline === shownCollection) : tasks),
+    [tasks, shownCollection],
+  );
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return tasks.filter(
+    return inCollection.filter(
       (t) =>
         (!q || t.title.toLowerCase().includes(q) || t.ticket.toLowerCase().includes(q)) &&
         (!filterAssignee || t.assignee_id === filterAssignee) &&
         (!filterRepo || t.repo_id === filterRepo),
     );
-  }, [tasks, query, filterAssignee, filterRepo]);
+  }, [inCollection, query, filterAssignee, filterRepo]);
 
   const columns = useMemo(() => {
     const open = visible.filter((t) => t.state === "open");
@@ -420,12 +455,12 @@ function PipelinePage() {
     // but a card can be dragged back out, which reopens it like a shipped one.
     const closed = visible.filter((t) => t.state === "rejected" || t.state === "cancelled");
     return [
-      ...stageNames.map((name) => ({ key: name, tasks: open.filter((t) => t.stage === name) })),
+      ...stageColumns(stageNames, open),
       { key: "shipped", tasks: visible.filter((t) => t.state === "done") },
       ...(closed.length ? [{ key: "rejected", tasks: closed }] : []),
     ];
   }, [visible, stageNames]);
-  const filtered = visible.length !== tasks.length;
+  const filtered = visible.length !== inCollection.length;
 
   const task = tasks.find((t) => t.id === selected) ?? null;
 
@@ -564,7 +599,22 @@ function PipelinePage() {
               >
                 Mine
               </Button>
-              {repos.length > 1 ? (
+              {catalogue.collections.length > 1 && shownCollection ? (
+                <Select value={shownCollection} onValueChange={(v) => setCollection(String(v))}>
+                  <SelectTrigger size="sm" aria-label="Collection" className="w-36">
+                    <SelectValue>{shownCollection}</SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup alignItemWithTrigger={false}>
+                    {catalogue.collections.map((c) => (
+                      <SelectItem key={c.name} value={c.name}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+              ) : null}
+              {repos.length > 1 &&
+              catalogue.collections.find((c) => c.name === shownCollection)?.code !== false ? (
                 <Select
                   value={filterRepo ?? "__all"}
                   onValueChange={(v) => setFilterRepo(v === "__all" ? null : String(v))}

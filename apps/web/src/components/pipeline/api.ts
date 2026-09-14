@@ -51,6 +51,22 @@ export interface StageDef {
   /** How hard the model thinks. Null means the provider's own default. */
   reasoning: string | null;
   tests: "required" | null;
+  /** A conversation with a person rather than one turn. */
+  interactive?: boolean;
+}
+
+/**
+ * A named, ordered choice of stages from the library — Engineering, Sales. `code:
+ * false` is a kind of work with no repository: no branch, no pull request.
+ */
+export interface Collection {
+  name: string;
+  description?: string;
+  code: boolean;
+  /** Pre-fills the New Task description. */
+  template?: string;
+  /** Run order. Without `inputs` a stage reads the ticket and everything before it. */
+  stages: Array<{ name: string; inputs?: string[] }>;
 }
 /**
  * The one catalogue of stages, versioned. There used to be three pipelines; two
@@ -58,7 +74,9 @@ export interface StageDef {
  * a per-task choice — and what a stage does became one shared setting.
  */
 export interface Catalogue {
+  /** The library: every stage. What a task runs is a collection of them. */
   stages: StageDef[];
+  collections: Collection[];
   version: number;
   updated_by: string | null;
   updated_at: string | null;
@@ -94,13 +112,14 @@ export interface Task {
   ticket: string;
   title: string;
   description: string;
-  repo_id: string;
+  /** Null for a task from a collection that needs no code. */
+  repo_id: string | null;
   /** Every repository the task may change, primary first. */
   repo_ids?: string[];
   pipeline: string;
   pipeline_snapshot: SnapshotStage[];
   assignee_id: string | null;
-  branch: string;
+  branch: string | null;
   stage: string | null;
   state: "open" | "done" | "rejected" | "cancelled";
   created_at: string;
@@ -407,6 +426,79 @@ export interface StageOverride {
   gate?: Gate;
   timeout_minutes?: number;
   questions?: boolean;
+}
+
+// ── collections ───────────────────────────────────────────────────────────────
+/**
+ * A collection's stages as a task would run them. Kept in step with
+ * `src/pipelines/collections.ts:assemble` in foundry-mvp, which is the authority.
+ */
+export function collectionStages(
+  catalogue: Pick<Catalogue, "stages" | "collections">,
+  name: string,
+): StageDef[] {
+  const c = catalogue.collections.find((x) => x.name === name);
+  if (!c) return [];
+  const produced: string[] = [];
+  return c.stages.flatMap((e) => {
+    const s = catalogue.stages.find((x) => x.name === e.name);
+    if (!s) return [];
+    const stage = { ...s, inputs: e.inputs ?? ["ticket", ...produced] };
+    produced.push(s.output.file ?? s.name);
+    return [stage];
+  });
+}
+
+/** Move one entry up (-1) or down (+1); a move off either end changes nothing. */
+export function moveStage<T>(entries: T[], index: number, dir: -1 | 1): T[] {
+  const to = index + dir;
+  if (index < 0 || index >= entries.length || to < 0 || to >= entries.length) return entries;
+  const next = [...entries];
+  [next[index], next[to]] = [next[to]!, next[index]!];
+  return next;
+}
+
+/** Which collections run a stage — shown on the stage, because an edit reaches all of them. */
+export const usedIn = (collections: Collection[], stage: string): string[] =>
+  collections.filter((c) => c.stages.some((e) => e.name === stage)).map((c) => c.name);
+
+/** Lowercase letters, digits and dashes, as the server requires of stage and collection names. */
+export const validName = (name: string) => /^[a-z][a-z0-9-]{1,40}$/.test(name);
+
+/**
+ * A new library stage. Its file comes from its name, so two stages never write the
+ * same one; everything else starts from an existing stage and is edited after.
+ */
+export function newStage(name: string, kind: "markdown" | "html", like: StageDef): StageDef {
+  return {
+    ...like,
+    name,
+    inputs: ["ticket"],
+    output: { file: `${name}.${kind === "html" ? "html" : "md"}`, kind },
+    prompt: null,
+    tests: null,
+    interactive: false,
+  };
+}
+
+/** A collection's template fills the description only while nothing has been typed. */
+export const templateFill = (description: string, template: string | undefined) =>
+  description.trim() ? description : (template ?? "");
+
+/**
+ * The board's stage columns for one collection. An open task whose stage the
+ * collection no longer has gets one extra column rather than vanishing.
+ */
+export function stageColumns<T extends { stage: string | null }>(
+  stageNames: string[],
+  open: T[],
+): Array<{ key: string; tasks: T[] }> {
+  const cols = stageNames.map((name) => ({
+    key: name,
+    tasks: open.filter((t) => t.stage === name),
+  }));
+  const elsewhere = open.filter((t) => !t.stage || !stageNames.includes(t.stage));
+  return elsewhere.length ? [...cols, { key: "removed", tasks: elsewhere }] : cols;
 }
 
 // ── presentation helpers ──────────────────────────────────────────────────────

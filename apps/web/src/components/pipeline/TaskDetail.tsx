@@ -479,13 +479,17 @@ function Header({
           ) : (
             <span className="truncate">{repo?.name ?? "—"}</span>
           )}
-          <span aria-hidden>·</span>
-          <span className="flex min-w-0 max-w-full items-center gap-1">
-            <GitBranchIcon aria-hidden className="size-3 shrink-0" />
-            <span className="truncate" title={task.branch}>
-              {task.branch}
-            </span>
-          </span>
+          {task.branch ? (
+            <>
+              <span aria-hidden>·</span>
+              <span className="flex min-w-0 max-w-full items-center gap-1">
+                <GitBranchIcon aria-hidden className="size-3 shrink-0" />
+                <span className="truncate" title={task.branch}>
+                  {task.branch}
+                </span>
+              </span>
+            </>
+          ) : null}
           <span aria-hidden>·</span>
           {assignee ? (
             <Tooltip>
@@ -556,9 +560,11 @@ function Header({
               </span>
             ) : null}
           </Fact>
-          <Fact label="Branch">
-            <span className="font-mono">{task.branch}</span>
-          </Fact>
+          {task.branch ? (
+            <Fact label="Branch">
+              <span className="font-mono">{task.branch}</span>
+            </Fact>
+          ) : null}
           <Fact label="Assignee">
             {assignee ? `${assignee.name} · ${assignee.email}` : "unassigned"}
           </Fact>
@@ -1165,9 +1171,14 @@ function StartCard({ task, busy, onStart }: { task: Task; busy: boolean; onStart
     <section className="rounded-xl border border-border/60 bg-card/40 px-3 py-3">
       <h3 className="text-[13px] font-medium text-foreground">Nothing has run yet</h3>
       <p className="mt-1 text-[13px] leading-[1.45] text-muted-foreground">
-        Starting runs <span className="font-mono text-[12px]">{stage}</span> as an agent session on{" "}
-        <span className="font-mono text-[12px]">{task.branch}</span>. It will ask you anything it
-        needs before it writes.
+        Starting runs <span className="font-mono text-[12px]">{stage}</span> as an agent session
+        {task.branch ? (
+          <>
+            {" "}
+            on <span className="font-mono text-[12px]">{task.branch}</span>
+          </>
+        ) : null}
+        . It will ask you anything it needs before it writes.
         {moved ? " Drag the card to another column to run a different stage." : ""}
       </p>
       <Button size="sm" className="mt-2.5" onClick={onStart} disabled={busy}>

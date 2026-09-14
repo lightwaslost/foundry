@@ -26,6 +26,8 @@ import {
   type Task,
   type User,
   call,
+  collectionStages,
+  templateFill,
 } from "./api";
 import { LinearPicker } from "./LinearPicker";
 import { stageSummary } from "./StageFields";
@@ -126,6 +128,24 @@ export function NewTask({
   // everything": `repos` arrives asynchronously, and an initial [] cannot tell
   // those apart.
   const [picked, setPicked] = useState<string[] | null>(null);
+  // Which kind of work this is. A collection that needs no code has no repository,
+  // branch or Linear ticket, so none of those fields are shown for it.
+  const [collection, setCollection] = useState<string>(
+    () =>
+      catalogue.collections.find((c) => c.name === "engineering")?.name ??
+      catalogue.collections[0]?.name ??
+      "",
+  );
+  const col = catalogue.collections.find((c) => c.name === collection);
+  const code = col?.code ?? true;
+  const pickCollection = (name: string) => {
+    const next = catalogue.collections.find((c) => c.name === name);
+    // Swap the template only if the description is still the previous one, untouched.
+    setDescription((d) => templateFill(d === (col?.template ?? "") ? "" : d, next?.template));
+    setCollection(name);
+    setSkipped([]);
+    if (next?.code === false) setLinked(null);
+  };
   const [assignee, setAssignee] = useState(me?.id ?? "");
   const [skipped, setSkipped] = useState<string[]>([]);
   const [busy, setBusy] = useState<"create" | "talk" | null>(null);
@@ -186,7 +206,7 @@ export function NewTask({
 
   // How each stage behaves is settled in the Stages tab, for every task. All this
   // dialog decides is which of them run.
-  const stages = catalogue.stages;
+  const stages = col ? collectionStages(catalogue, col.name) : catalogue.stages;
 
   const kept = stages.filter((s) => !skipped.includes(s.name));
   const resolved = resolveInputs(stages, skipped);
@@ -202,23 +222,25 @@ export function NewTask({
     setSkipped((prev) => (prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]));
 
   const submit = async () => {
-    if (!title.trim() || !repo || kept.length === 0 || noBase) return;
+    if (!title.trim() || (code && (!repo || noBase)) || kept.length === 0) return;
     setBusy("create");
     setErr(null);
-    const common = {
+    const r = await post<{ task?: Task; error?: string }>("/api/tasks", {
       title,
       description,
-      ...(extras.length ? { extra_repo_ids: extras } : {}),
       assignee_id: assignee || null,
-    };
-    const r = await post<{ task?: Task; error?: string }>("/api/tasks", {
-      ...common,
-      repo_id: repo,
-      // Sent only when it is not the whole catalogue, so an untouched dialog posts
-      // exactly the body it always did.
+      // Engineering is the default, so an engineering task posts the body it always did.
+      ...(col && col.name !== "engineering" ? { collection: col.name } : {}),
+      ...(code
+        ? {
+            repo_id: repo,
+            ...(extras.length ? { extra_repo_ids: extras } : {}),
+            ...(linked ? { linear_issue: linked.identifier } : {}),
+            ...(base ? { base_branch: base } : {}),
+          }
+        : {}),
+      // Sent only when it is not the whole collection.
       ...(skipped.length ? { stages: kept.map((st) => st.name) } : {}),
-      ...(linked ? { linear_issue: linked.identifier } : {}),
-      ...(base ? { base_branch: base } : {}),
       ...(size === "small" ? { size } : {}),
     });
     setBusy(null);
@@ -226,7 +248,7 @@ export function NewTask({
     if (r.error) return setErr(r.error);
     form.current.cleared++;
     setTitle("");
-    setDescription("");
+    setDescription(col?.template ?? "");
     setLinked(null);
     setBase(null);
     setSize("normal");
@@ -258,7 +280,7 @@ export function NewTask({
   // remember, so leaving with something typed asks first — here and in the dialog.
   const dirty =
     title.trim().length > 0 ||
-    description.trim().length > 0 ||
+    (description.trim().length > 0 && description !== (col?.template ?? "")) ||
     files.length > 0 ||
     linked !== null ||
     // Divergence from the default, not "more than one" — otherwise seeding the
@@ -286,7 +308,33 @@ export function NewTask({
       <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto px-4 py-3 sm:grid-cols-[minmax(0,1fr)_320px] lg:grid-cols-[minmax(0,1fr)_360px]">
         {/* Left — the ask. */}
         <div className="space-y-3">
-          {linked ? (
+          {catalogue.collections.length > 1 ? (
+            <div className="space-y-1.5">
+              <Label>Kind of work</Label>
+              <div className="flex flex-wrap gap-1.5">
+                {catalogue.collections.map((c) => (
+                  <button
+                    key={c.name}
+                    type="button"
+                    aria-pressed={c.name === collection}
+                    onClick={() => pickCollection(c.name)}
+                    className={cn(
+                      "rounded-md border px-2 py-0.5 text-[12px]",
+                      c.name === collection
+                        ? "border-primary/40 bg-primary/12 text-foreground"
+                        : "border-border/60 text-muted-foreground hover:bg-accent hover:text-foreground",
+                    )}
+                  >
+                    {c.name}
+                  </button>
+                ))}
+              </div>
+              {col?.description ? (
+                <p className="text-[11px] text-muted-foreground">{col.description}</p>
+              ) : null}
+            </div>
+          ) : null}
+          {!code ? null : linked ? (
             <div className="space-y-1">
               <span className="inline-flex items-center gap-1 rounded-md border border-primary/40 bg-primary/12 px-2 py-1 font-mono text-[11px] text-foreground">
                 {linked.identifier}
@@ -329,12 +377,18 @@ export function NewTask({
             />
           )}
           <div className="space-y-1.5">
-            <Label htmlFor="task-title">What do you want built?</Label>
+            <Label htmlFor="task-title">
+              {code ? "What do you want built?" : "What is this task?"}
+            </Label>
             <Input
               id="task-title"
               autoFocus
               value={title}
-              placeholder="Notifications when a stage needs a person"
+              placeholder={
+                code
+                  ? "Notifications when a stage needs a person"
+                  : "Acme — proposal after the discovery call"
+              }
               onChange={(e) => setTitle((e.target as HTMLInputElement).value)}
             />
           </div>
@@ -350,7 +404,7 @@ export function NewTask({
             />
           </div>
 
-          {onTalk ? (
+          {onTalk && code ? (
             <div className="space-y-1.5">
               <div className="flex items-center gap-2">
                 <Label>Files</Label>
@@ -427,7 +481,7 @@ export function NewTask({
             </div>
           </div>
 
-          {cloned.length ? (
+          {code && cloned.length ? (
             <div className="space-y-1.5">
               <div className="flex items-center gap-2">
                 <Label>Repositories</Label>
@@ -498,25 +552,27 @@ export function NewTask({
             </div>
           ) : null}
 
-          <StartsFrom
-            base={shownBase}
-            changed={base !== null}
-            open={baseOpen}
-            onOpen={() => setBaseOpen((v) => !v)}
-            query={query}
-            onQuery={(v) => {
-              setQuery(v);
-              if (branchList?.branches.some((b) => b.name === v)) setBase(v);
-            }}
-            onPick={(name) => {
-              setBase(name);
-              setQuery("");
-            }}
-            branches={branchList?.branches ?? []}
-            chosenNames={cloned.filter((r) => chosen.includes(r.id)).map((r) => r.name)}
-            mainName={mainName}
-            noBase={noBase}
-          />
+          {code ? (
+            <StartsFrom
+              base={shownBase}
+              changed={base !== null}
+              open={baseOpen}
+              onOpen={() => setBaseOpen((v) => !v)}
+              query={query}
+              onQuery={(v) => {
+                setQuery(v);
+                if (branchList?.branches.some((b) => b.name === v)) setBase(v);
+              }}
+              onPick={(name) => {
+                setBase(name);
+                setQuery("");
+              }}
+              branches={branchList?.branches ?? []}
+              chosenNames={cloned.filter((r) => chosen.includes(r.id)).map((r) => r.name)}
+              mainName={mainName}
+              noBase={noBase}
+            />
+          ) : null}
 
           <div className="space-y-1">
             <div className="flex items-center gap-2">
@@ -612,11 +668,13 @@ export function NewTask({
         <Button
           size="sm"
           onClick={() => void submit()}
-          disabled={busy !== null || !title.trim() || !repo || kept.length === 0 || noBase}
+          disabled={
+            busy !== null || !title.trim() || (code && (!repo || noBase)) || kept.length === 0
+          }
         >
           {busy === "create" ? <Spinner /> : null}Create task
         </Button>
-        {onTalk ? (
+        {onTalk && code ? (
           <Button
             size="sm"
             variant="ghost-muted"
@@ -630,9 +688,9 @@ export function NewTask({
           Cancel
         </Button>
         <span className="ml-auto text-[11px] text-muted-foreground">
-          {cloned.length === 0
+          {code && cloned.length === 0
             ? "No repository is cloned yet — an admin adds one first."
-            : onTalk
+            : onTalk && code
               ? "Or talk it through and let the agent write the brief and pick the stages."
               : "Nothing runs until you start it."}
         </span>

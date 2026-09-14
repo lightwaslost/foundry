@@ -1,41 +1,57 @@
 import { useEffect, useMemo, useState } from "react";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
+import { Checkbox } from "~/components/ui/checkbox";
+import { Input } from "~/components/ui/input";
 import { Spinner } from "~/components/ui/spinner";
+import { Textarea } from "~/components/ui/textarea";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
-import { ChevronDownIcon, GitPullRequestIcon, FileTextIcon, RotateCcwIcon } from "lucide-react";
+import {
+  ArrowDownIcon,
+  ArrowUpIcon,
+  ChevronDownIcon,
+  GitPullRequestIcon,
+  FileTextIcon,
+  PlusIcon,
+  RotateCcwIcon,
+  XIcon,
+} from "lucide-react";
 import { cn } from "~/lib/utils";
 import {
   ago,
+  collectionStages,
+  moveStage,
+  newStage,
   post,
   put,
   unauthorized,
+  usedIn,
+  validName,
   type Catalogue,
   type CatalogueVersion,
+  type Collection,
   type StageDef,
   type StageOverride,
   type User,
 } from "./api";
 import { StageFields } from "./StageFields";
 
+const LIBRARY = "";
+
 /**
- * Where a stage's behaviour is decided, once, for every task that runs it.
+ * Where stages are written, and where they are put together into kinds of work.
  *
- * There used to be three pipelines to choose between. Two of them were subsets of
- * the third — `bugfix` was `feature` without the one-pager and mockup, and its
- * one apparent difference was something `selectStages` already derives — so the
- * choice moved to the task ("which stages") and what is left here is the part
- * that was always shared: the instructions, the skill, the model, whether a
- * person reviews it, how long it may take.
+ * A stage is written once, in the library, and behaves the same in every collection
+ * that runs it — so each stage says where it is used, because an edit made for Sales
+ * reaches Engineering too. A collection is an ordered choice of those stages: which
+ * run, in what order, and whether its tasks have code at all.
  *
- * The list on the left is the pipeline, in order, and it stays visible while you
- * write. That is the whole reason for the split: the prompts are the point of
- * this screen — a build stage carries a team's code practices — and they need
- * height, but losing sight of the order while editing one is how a stage ends up
- * contradicting the one before it.
+ * The list on the left stays visible while you write. The prompts are the point of
+ * this screen and they need height, but losing sight of the order while editing one
+ * is how a stage ends up contradicting the one before it.
  *
- * Saving appends a version rather than overwriting one, so a prompt can be rolled
- * back without a deploy.
+ * One Save covers stages and collections together and appends a version, so either
+ * can be rolled back without a deploy.
  */
 export function StageManager({
   catalogue,
@@ -55,17 +71,39 @@ export function StageManager({
   now: number;
 }) {
   const [edits, setEdits] = useState<Record<string, StageOverride>>({});
+  const [added, setAdded] = useState<StageDef[]>([]);
+  const [cols, setCols] = useState<Collection[]>(catalogue.collections);
+  const [view, setView] = useState<string>(LIBRARY);
   const [selected, setSelected] = useState(catalogue.stages[0]?.name ?? "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [versions, setVersions] = useState<CatalogueVersion[] | null>(null);
+  const [naming, setNaming] = useState<null | {
+    what: "stage" | "collection";
+    name: string;
+    kind: "markdown" | "html";
+  }>(null);
+
+  // A save or revert makes a new version; only then does what is on screen follow the
+  // server. The board re-reads the catalogue every few seconds, so following every
+  // read would wipe a collection mid-edit.
+  const [seenVersion, setSeenVersion] = useState(catalogue.version);
+  if (seenVersion !== catalogue.version) {
+    setSeenVersion(catalogue.version);
+    setCols(catalogue.collections);
+    setAdded([]);
+  }
+
+  const library = useMemo(() => [...catalogue.stages, ...added], [catalogue.stages, added]);
+  const collection = cols.find((c) => c.name === view) ?? null;
+  const shown = collection
+    ? collectionStages({ stages: library, collections: cols }, collection.name)
+    : library;
 
   useEffect(() => {
-    if (!catalogue.stages.some((s) => s.name === selected) && catalogue.stages[0]) {
-      setSelected(catalogue.stages[0].name);
-    }
-  }, [catalogue.stages, selected]);
+    if (!shown.some((s) => s.name === selected) && shown[0]) setSelected(shown[0].name);
+  }, [shown, selected]);
 
   const changed = useMemo(
     () =>
@@ -74,13 +112,14 @@ export function StageManager({
         .map(([name]) => name),
     [edits],
   );
-  const dirty = changed.length > 0;
+  const colsChanged = JSON.stringify(cols) !== JSON.stringify(catalogue.collections);
+  const dirty = changed.length > 0 || added.length > 0 || colsChanged;
   const editor = users.find((u) => u.id === catalogue.updated_by);
-  const stage = catalogue.stages.find((s) => s.name === selected);
+  const stage = library.find((s) => s.name === selected);
 
   /** Fold the pending edits into the stage list the API expects back. */
   const merged = (): StageDef[] =>
-    catalogue.stages.map((s) => {
+    library.map((s) => {
       const o = edits[s.name];
       if (!o) return s;
       return {
@@ -98,10 +137,20 @@ export function StageManager({
       };
     });
 
+  const discard = () => {
+    setEdits({});
+    setAdded([]);
+    setCols(catalogue.collections);
+    if (!catalogue.collections.some((c) => c.name === view)) setView(LIBRARY);
+  };
+
   const save = async () => {
     setBusy(true);
     setErr(null);
-    const r = await put<{ error?: string }>("/api/admin/stages", { stages: merged() });
+    const r = await put<{ error?: string }>("/api/admin/stages", {
+      stages: merged(),
+      collections: cols,
+    });
     setBusy(false);
     if (unauthorized(r)) return;
     if (r.error) return setErr(r.error);
@@ -124,6 +173,37 @@ export function StageManager({
     onSaved();
   };
 
+  const updateCollection = (next: Collection) =>
+    setCols((all) => all.map((c) => (c.name === next.name ? next : c)));
+
+  /** Add what is being named: a stage to the library, or an empty collection. */
+  const commitName = () => {
+    if (!naming) return;
+    const name = naming.name.trim();
+    if (!validName(name))
+      return setErr("Names are lowercase letters, digits and dashes, starting with a letter.");
+    if (naming.what === "stage") {
+      if (library.some((s) => s.name === name))
+        return setErr(`There is already a stage called ${name}.`);
+      const like = library.find((s) => s.output.kind !== "pull_request") ?? library[0];
+      if (!like) return;
+      setAdded((a) => [...a, newStage(name, naming.kind, like)]);
+      if (collection) updateCollection({ ...collection, stages: [...collection.stages, { name }] });
+      setSelected(name);
+    } else {
+      if (cols.some((c) => c.name === name))
+        return setErr(`There is already a collection called ${name}.`);
+      setCols((all) => [...all, { name, code: false, stages: [] }]);
+      setView(name);
+    }
+    setErr(null);
+    setNaming(null);
+  };
+
+  const notIn = collection
+    ? library.filter((s) => !collection.stages.some((e) => e.name === s.name))
+    : [];
+
   return (
     <section className="flex min-h-0 flex-col gap-3">
       <header className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 px-1">
@@ -139,9 +219,7 @@ export function StageManager({
         <div className="ml-auto flex items-center gap-1.5">
           {saved ? <span className="text-[11px] text-success-foreground">Saved</span> : null}
           {dirty ? (
-            <span className="text-[11px] text-warning-foreground">
-              {changed.length === 1 ? `${changed[0]} changed` : `${changed.length} stages changed`}
-            </span>
+            <span className="text-[11px] text-warning-foreground">Unsaved changes</span>
           ) : null}
           <VersionMenu
             versions={versions}
@@ -153,7 +231,7 @@ export function StageManager({
             onRevert={(v) => void revert(v)}
           />
           {dirty ? (
-            <Button size="xs" variant="ghost-muted" onClick={() => setEdits({})} disabled={busy}>
+            <Button size="xs" variant="ghost-muted" onClick={discard} disabled={busy}>
               Discard
             </Button>
           ) : null}
@@ -162,6 +240,78 @@ export function StageManager({
           </Button>
         </div>
       </header>
+
+      {/* What you are looking at: every stage, or one kind of work. */}
+      <div className="flex flex-wrap items-center gap-1.5 px-1">
+        {[LIBRARY, ...cols.map((c) => c.name)].map((name) => (
+          <button
+            key={name || "library"}
+            type="button"
+            aria-pressed={view === name}
+            onClick={() => setView(name)}
+            className={cn(
+              "rounded-md border px-2 py-0.5 text-[12px]",
+              view === name
+                ? "border-primary/40 bg-primary/12 text-foreground"
+                : "border-border/60 text-muted-foreground hover:bg-accent hover:text-foreground",
+            )}
+          >
+            {name || "All stages"}
+          </button>
+        ))}
+        {canEdit ? (
+          <button
+            type="button"
+            onClick={() => setNaming({ what: "collection", name: "", kind: "markdown" })}
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <PlusIcon aria-hidden className="size-3" />
+            Collection
+          </button>
+        ) : null}
+      </div>
+
+      {naming ? (
+        <div className="flex flex-wrap items-center gap-2 px-1">
+          <Input
+            autoFocus
+            size="sm"
+            className="w-48"
+            aria-label={naming.what === "stage" ? "New stage name" : "New collection name"}
+            placeholder={naming.what === "stage" ? "follow-up" : "sales"}
+            value={naming.name}
+            onChange={(e) => setNaming({ ...naming, name: (e.target as HTMLInputElement).value })}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitName();
+              if (e.key === "Escape") setNaming(null);
+            }}
+          />
+          {naming.what === "stage"
+            ? (["markdown", "html"] as const).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  aria-pressed={naming.kind === k}
+                  onClick={() => setNaming({ ...naming, kind: k })}
+                  className={cn(
+                    "rounded-md border px-2 py-0.5 text-[11px]",
+                    naming.kind === k
+                      ? "border-primary/40 bg-primary/12 text-foreground"
+                      : "border-border/60 text-muted-foreground hover:bg-accent",
+                  )}
+                >
+                  {k === "html" ? "Web page" : "Document"}
+                </button>
+              ))
+            : null}
+          <Button size="xs" onClick={commitName}>
+            Add {naming.what}
+          </Button>
+          <Button size="xs" variant="ghost-muted" onClick={() => setNaming(null)}>
+            Cancel
+          </Button>
+        </div>
+      ) : null}
 
       {err ? (
         <p className="rounded-lg border border-destructive/32 bg-destructive/8 px-3 py-2 text-xs text-destructive-foreground">
@@ -174,47 +324,169 @@ export function StageManager({
         </p>
       ) : null}
 
-      <div className="grid min-h-0 gap-4 md:grid-cols-[212px_minmax(0,1fr)]">
-        {/* The pipeline, in order, and which of it you have touched. */}
+      {collection ? (
+        <div className="grid gap-3 rounded-lg border border-border/60 px-3 py-2.5 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 text-[13px] text-foreground">
+              <Checkbox
+                checked={collection.code}
+                disabled={!canEdit}
+                onCheckedChange={(v) => updateCollection({ ...collection, code: v === true })}
+              />
+              Needs code
+            </label>
+            <p className="text-[11px] text-muted-foreground">
+              {collection.code
+                ? "Tasks pick repositories, get a branch, and may open a pull request."
+                : "Tasks have no repository: no branch, no pull request. The agent works in a folder of its own."}
+            </p>
+            <Input
+              size="sm"
+              disabled={!canEdit}
+              aria-label="Description"
+              placeholder="What this kind of work is for"
+              value={collection.description ?? ""}
+              onChange={(e) =>
+                updateCollection({
+                  ...collection,
+                  description: (e.target as HTMLInputElement).value,
+                })
+              }
+            />
+          </div>
+          <div className="space-y-1">
+            <p className="text-[12px] text-foreground">New task template</p>
+            <Textarea
+              size="sm"
+              disabled={!canEdit}
+              className="min-h-20"
+              placeholder={"Company:\nWebsite / X:\nCall notes:"}
+              value={collection.template ?? ""}
+              onChange={(e) => updateCollection({ ...collection, template: e.target.value })}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Fills the description when someone starts a task here. The agent reads what they
+              write.
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="grid min-h-0 gap-4 md:grid-cols-[232px_minmax(0,1fr)]">
+        {/* The stages, in order, and which of them you have touched. */}
         <nav className="flex flex-col gap-0.5 md:border-r md:border-border/50 md:pr-3">
-          {catalogue.stages.map((s, i) => {
+          {shown.map((s, i) => {
             const on = s.name === selected;
             return (
-              <button
+              <div
                 key={s.name}
-                type="button"
-                aria-current={on ? "true" : undefined}
-                onClick={() => setSelected(s.name)}
                 className={cn(
-                  "flex items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors",
+                  "group flex items-center gap-1 rounded-lg pr-1 transition-colors",
                   on ? "bg-accent" : "hover:bg-accent/50",
                 )}
               >
-                <span className="w-3.5 shrink-0 text-right font-mono text-[10px] text-muted-foreground/70">
-                  {i + 1}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span
-                    className={cn(
-                      "block truncate text-[13px] text-foreground",
-                      on && "font-medium",
-                    )}
-                  >
-                    {s.name}
+                <button
+                  type="button"
+                  aria-current={on ? "true" : undefined}
+                  onClick={() => setSelected(s.name)}
+                  className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left"
+                >
+                  <span className="w-3.5 shrink-0 text-right font-mono text-[10px] text-muted-foreground/70">
+                    {collection ? i + 1 : ""}
                   </span>
-                  <span className="block truncate font-mono text-[10px] text-muted-foreground">
-                    {s.output.file ?? "pull request"}
+                  <span className="min-w-0 flex-1">
+                    <span
+                      className={cn(
+                        "block truncate text-[13px] text-foreground",
+                        on && "font-medium",
+                      )}
+                    >
+                      {s.name}
+                    </span>
+                    <span className="block truncate font-mono text-[10px] text-muted-foreground">
+                      {s.output.file ?? "pull request"}
+                    </span>
                   </span>
-                </span>
-                {edits[s.name] && Object.keys(edits[s.name]!).length > 0 ? (
-                  <span
-                    aria-label="changed"
-                    className="size-1.5 shrink-0 rounded-full bg-warning"
-                  />
+                  {(edits[s.name] && Object.keys(edits[s.name]!).length > 0) ||
+                  added.some((a) => a.name === s.name) ? (
+                    <span
+                      aria-label="changed"
+                      className="size-1.5 shrink-0 rounded-full bg-warning"
+                    />
+                  ) : null}
+                </button>
+                {collection && canEdit ? (
+                  <span className="flex shrink-0 items-center opacity-60 group-hover:opacity-100">
+                    <IconButton
+                      label={`Move ${s.name} up`}
+                      disabled={i === 0}
+                      onClick={() =>
+                        updateCollection({
+                          ...collection,
+                          stages: moveStage(collection.stages, i, -1),
+                        })
+                      }
+                    >
+                      <ArrowUpIcon aria-hidden className="size-3" />
+                    </IconButton>
+                    <IconButton
+                      label={`Move ${s.name} down`}
+                      disabled={i === shown.length - 1}
+                      onClick={() =>
+                        updateCollection({
+                          ...collection,
+                          stages: moveStage(collection.stages, i, 1),
+                        })
+                      }
+                    >
+                      <ArrowDownIcon aria-hidden className="size-3" />
+                    </IconButton>
+                    <IconButton
+                      label={`Remove ${s.name} from ${collection.name}`}
+                      onClick={() =>
+                        updateCollection({
+                          ...collection,
+                          stages: collection.stages.filter((e) => e.name !== s.name),
+                        })
+                      }
+                    >
+                      <XIcon aria-hidden className="size-3" />
+                    </IconButton>
+                  </span>
                 ) : null}
-              </button>
+              </div>
             );
           })}
+
+          {collection && canEdit && notIn.length ? (
+            <select
+              aria-label={`Add a stage to ${collection.name}`}
+              className="mt-1 h-7 rounded-md border border-border/60 bg-transparent px-1.5 text-[12px] text-muted-foreground"
+              value=""
+              onChange={(e) => {
+                const name = e.target.value;
+                if (name)
+                  updateCollection({ ...collection, stages: [...collection.stages, { name }] });
+              }}
+            >
+              <option value="">+ Add a stage from the library</option>
+              {notIn.map((s) => (
+                <option key={s.name} value={s.name}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          ) : null}
+          {canEdit ? (
+            <button
+              type="button"
+              onClick={() => setNaming({ what: "stage", name: "", kind: "markdown" })}
+              className="mt-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-left text-[12px] text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <PlusIcon aria-hidden className="size-3" />
+              New stage
+            </button>
+          ) : null}
         </nav>
 
         {/* The stage you are writing. */}
@@ -247,11 +519,12 @@ export function StageManager({
               </span>
             </div>
 
-            {/* Read-only, but shown: the wiring is what makes the order mean
-                something, and it is the first thing you check when a prompt
-                refers to a document the stage cannot actually see. */}
+            {/* An edit here reaches every collection named, so they are named. */}
             <p className="font-mono text-[11px] text-muted-foreground">
-              reads {stage.inputs.length ? stage.inputs.join(", ") : "ticket"}
+              used in {usedIn(cols, stage.name).join(", ") || "no collection yet"}
+              {collection
+                ? ` · reads ${(shown.find((s) => s.name === stage.name)?.inputs ?? ["ticket"]).join(", ")}`
+                : ""}
             </p>
 
             <StageFields
@@ -264,10 +537,36 @@ export function StageManager({
             />
           </div>
         ) : (
-          <p className="text-[13px] text-muted-foreground">The catalogue is empty.</p>
+          <p className="text-[13px] text-muted-foreground">
+            {collection ? "No stages yet — add one from the library." : "The library is empty."}
+          </p>
         )}
       </div>
     </section>
+  );
+}
+
+function IconButton({
+  label,
+  disabled,
+  onClick,
+  children,
+}: {
+  label: string;
+  disabled?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      disabled={disabled}
+      onClick={onClick}
+      className="rounded p-1 text-muted-foreground hover:bg-background hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+    >
+      {children}
+    </button>
   );
 }
 
