@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
@@ -23,6 +23,7 @@ import {
   moveStage,
   newStage,
   post,
+  selectedStage,
   put,
   unauthorized,
   usedIn,
@@ -101,10 +102,6 @@ export function StageManager({
     ? collectionStages({ stages: library, collections: cols }, collection.name)
     : library;
 
-  useEffect(() => {
-    if (!shown.some((s) => s.name === selected) && shown[0]) setSelected(shown[0].name);
-  }, [shown, selected]);
-
   const changed = useMemo(
     () =>
       Object.entries(edits)
@@ -115,7 +112,9 @@ export function StageManager({
   const colsChanged = JSON.stringify(cols) !== JSON.stringify(catalogue.collections);
   const dirty = changed.length > 0 || added.length > 0 || colsChanged;
   const editor = users.find((u) => u.id === catalogue.updated_by);
-  const stage = library.find((s) => s.name === selected);
+  // Only ever a stage in the list on the left: an empty new collection shows nothing,
+  // not whichever stage happened to be selected in the last view.
+  const stage = selectedStage(shown, selected);
 
   /** Fold the pending edits into the stage list the API expects back. */
   const merged = (): StageDef[] =>
@@ -376,7 +375,7 @@ export function StageManager({
         {/* The stages, in order, and which of them you have touched. */}
         <nav className="flex flex-col gap-0.5 md:border-r md:border-border/50 md:pr-3">
           {shown.map((s, i) => {
-            const on = s.name === selected;
+            const on = s.name === stage?.name;
             return (
               <div
                 key={s.name}

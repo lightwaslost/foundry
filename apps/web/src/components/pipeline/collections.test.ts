@@ -4,6 +4,7 @@ import {
   collectionStages,
   moveStage,
   newStage,
+  selectedStage,
   stageColumns,
   templateFill,
   usedIn,
@@ -79,6 +80,33 @@ describe("collections", () => {
     expect(s.prompt).toBeNull();
     expect(validName("follow-up")).toBe(true);
     expect(validName("Follow Up")).toBe(false);
+  });
+
+  it("start a new stage from neutral settings, not the stage it borrowed a model from", () => {
+    const oneOff = {
+      ...stage("mockup", "mockup.html"),
+      skill: "airaa-meadow",
+      gate: "auto" as const,
+      timeout_minutes: 90,
+      questions: false,
+      reasoning: "high",
+    };
+    const s = newStage("follow-up", "markdown", oneOff);
+    expect(s.provider).toEqual(oneOff.provider);
+    expect([s.skill, s.gate, s.timeout_minutes, s.questions, s.reasoning]).toEqual([
+      null,
+      "human",
+      30,
+      true,
+      null,
+    ]);
+  });
+
+  it("show only a stage that is in the list being looked at", () => {
+    const list = [stage("call-brief", "call-brief.md"), stage("proposal", "proposal.md")];
+    expect(selectedStage(list, "proposal")?.name).toBe("proposal");
+    expect(selectedStage(list, "one-pager")?.name).toBe("call-brief");
+    expect(selectedStage([], "one-pager")).toBeNull();
   });
 
   it("fill the description from a template only when it is empty", () => {

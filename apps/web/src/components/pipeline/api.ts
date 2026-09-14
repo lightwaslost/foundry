@@ -467,19 +467,29 @@ export const validName = (name: string) => /^[a-z][a-z0-9-]{1,40}$/.test(name);
 
 /**
  * A new library stage. Its file comes from its name, so two stages never write the
- * same one; everything else starts from an existing stage and is edited after.
+ * same one. Only the model is borrowed from an existing stage — the rest starts
+ * neutral, so a new stage does not quietly inherit, say, the mockup's skill.
  */
 export function newStage(name: string, kind: "markdown" | "html", like: StageDef): StageDef {
   return {
-    ...like,
     name,
+    provider: { ...like.provider },
     inputs: ["ticket"],
     output: { file: `${name}.${kind === "html" ? "html" : "md"}`, kind },
+    skill: null,
+    gate: "human",
+    timeout_minutes: 30,
     prompt: null,
+    questions: true,
+    reasoning: null,
     tests: null,
     interactive: false,
   };
 }
+
+/** The stage to show: the chosen one if it is in this list, else the list's first, else none. */
+export const selectedStage = (list: StageDef[], selected: string): StageDef | null =>
+  list.find((s) => s.name === selected) ?? list[0] ?? null;
 
 /** A collection's template fills the description only while nothing has been typed. */
 export const templateFill = (description: string, template: string | undefined) =>
