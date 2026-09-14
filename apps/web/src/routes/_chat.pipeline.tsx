@@ -54,7 +54,12 @@ import { GithubIdentity } from "~/components/pipeline/GithubIdentity";
 import { PreviewPanelShell } from "~/components/preview/PreviewPanelShell";
 import { ServerMonitor } from "~/components/pipeline/ServerMonitor";
 import { TaskDetail } from "~/components/pipeline/TaskDetail";
-import { FOUNDRY_TAB_LABEL, FoundryTabs, type FoundryTab } from "~/components/pipeline/FoundryTabs";
+import {
+  FOUNDRY_TAB_LABEL,
+  FoundryTabs,
+  useFoundryType,
+  type FoundryTab,
+} from "~/components/pipeline/FoundryTabs";
 
 /**
  * Foundry, as a page inside T3.
@@ -209,7 +214,9 @@ function PipelinePage() {
   const [needsAuth, setNeedsAuth] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const { task: taskFromUrl, tab: tabFromUrl } = Route.useSearch();
-  const [tab, setTab] = useState<Tab>(tabFromUrl ?? "board");
+  // The tab is the URL's, so a reload or a shared link lands where you were. Pipeline
+  // is the bare /pipeline.
+  const tab: Tab = tabFromUrl ?? "board";
   const [me, setMe] = useState<User | null>(null);
   const [catalogue, setCatalogue] = useState<Catalogue>({
     stages: [],
@@ -238,6 +245,13 @@ function PipelinePage() {
   // which is how it was wrong twice. It is also a client-side move, so no full reload
   // can hand you a stale bundle in the middle of the handoff.
   const navigate = useNavigate();
+  useFoundryType();
+  const setTab = (t: Tab) =>
+    void navigate({
+      to: "/pipeline",
+      search: ({ tab: _was, ...rest }) => (t === "board" ? rest : { ...rest, tab: t }),
+      replace: true,
+    });
   const goToThread = (threadId: string | null | undefined) => {
     if (!envId || !threadId) return;
     void navigate({ to: "/$environmentId/$threadId", params: { environmentId: envId, threadId } });
@@ -492,8 +506,11 @@ function PipelinePage() {
                   : `${waiting.length} waiting on someone`
               }
               onClick={() => {
+                const next = (mine[0] ?? waiting[0])!;
                 setTab("board");
-                setSelected((mine[0] ?? waiting[0])!.id);
+                // Its card is only on the board under its own collection.
+                if (next.pipeline !== shownCollection) setCollection(next.pipeline);
+                setSelected(next.id);
               }}
             >
               <BellIcon />

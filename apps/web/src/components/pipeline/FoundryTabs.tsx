@@ -1,9 +1,21 @@
+import { useEffect } from "react";
 import { ChevronDownIcon } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { cn } from "~/lib/utils";
 
 export type FoundryTab = "board" | "stages" | "usage" | "docs" | "monitor";
+
+/**
+ * While a Foundry page is mounted, its popups — which render into <body>, outside
+ * the page — are set in the page's type too. See `.foundry-portals` in index.css.
+ */
+export function useFoundryType(): void {
+  useEffect(() => {
+    document.body.classList.add("foundry-portals");
+    return () => document.body.classList.remove("foundry-portals");
+  }, []);
+}
 
 const PRIMARY: Array<[FoundryTab, string]> = [
   ["board", "Pipeline"],

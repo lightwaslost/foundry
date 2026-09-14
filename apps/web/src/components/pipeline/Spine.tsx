@@ -52,7 +52,7 @@ export function Spine({
                 <span
                   className={cn(
                     "rounded-full transition-colors",
-                    bars ? "h-1.5 w-[18px] flex-none" : "h-[3px] flex-1",
+                    bars ? "h-1.5 max-w-[18px] min-w-1 flex-1" : "h-[3px] flex-1",
                     SEGMENT_TONE[tone],
                     tone === "busy" && "motion-safe:animate-pulse",
                     tone === "idle" && "bg-border/70",

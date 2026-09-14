@@ -91,6 +91,9 @@ export function StageManager({
   // read would wipe a collection mid-edit.
   const [seenVersion, setSeenVersion] = useState(catalogue.version);
   if (seenVersion !== catalogue.version) {
+    // Opened before the catalogue had loaded (a link straight to Stages): nothing was
+    // chosen yet, so start on the first collection rather than the library.
+    if (seenVersion === 0 && view === LIBRARY) setView(catalogue.collections[0]?.name ?? LIBRARY);
     setSeenVersion(catalogue.version);
     setCols(catalogue.collections);
     setAdded([]);

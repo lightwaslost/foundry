@@ -10,7 +10,7 @@ import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "~/components/Works
 import { WorkspacePageContainer } from "~/components/WorkspacePageContainer";
 import { WorkspacePageHeader } from "~/components/WorkspacePageHeader";
 import { call, duration, unauthorized } from "~/components/pipeline/api";
-import { FoundryTabs } from "~/components/pipeline/FoundryTabs";
+import { FoundryTabs, useFoundryType } from "~/components/pipeline/FoundryTabs";
 import { isElectron } from "~/env";
 
 /**
@@ -66,6 +66,7 @@ function stageCost(s: Stage): string {
 
 function TeamUsagePage() {
   const navigate = useNavigate();
+  useFoundryType();
   const [range, setRange] = useState<Range>("30d");
   const [report, setReport] = useState<Report | null>(null);
   const [error, setError] = useState<string | null>(null);
