@@ -56,11 +56,11 @@ export function TaskCard({
       onDragEnd={onDragEnd}
       title={movable ? "Drag to another stage" : "Running — stop it before moving it"}
       className={cn(
-        "group w-full rounded-xl border bg-card/40 px-3 py-2.5 text-left transition-colors",
+        "group flex w-full flex-col gap-2 rounded-xl border bg-card px-2.5 py-2.5 text-left transition-colors",
         selected
-          ? "border-primary/60 bg-card/70"
-          : "border-border/60 hover:border-border hover:bg-card/60",
-        waiting && "border-warning/40",
+          ? "border-primary/60 ring-3 ring-primary/10"
+          : "border-border/70 hover:border-border",
+        waiting && !selected && "border-warning/60",
         movable && "cursor-grab active:cursor-grabbing",
         dragging && "opacity-40",
       )}
@@ -69,42 +69,49 @@ export function TaskCard({
         <span className="min-w-0 flex-1 text-[13px] leading-snug font-medium text-foreground">
           {task.title}
         </span>
-        <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+        <span className="shrink-0 pt-px text-[11px] text-muted-foreground tabular-nums">
           {task.ticket.replace("FND-", "")}
         </span>
       </div>
-      <Spine className="mt-2" stages={task.pipeline_snapshot} runs={runs} taskState={task.state} />
-      <div className="mt-2 flex items-center gap-1.5">
+      <Spine bars stages={task.pipeline_snapshot} runs={runs} taskState={task.state} />
+      <div className="flex items-center gap-1.5">
         {waiting ? (
           <StateBadge state={waiting.state} />
-        ) : current && task.state === "open" ? (
+        ) : task.state === "done" ? (
+          <Badge variant="success" size="sm">
+            Shipped
+          </Badge>
+        ) : task.state !== "open" ? (
+          <Badge variant="secondary" size="sm" className="capitalize">
+            {task.state}
+          </Badge>
+        ) : current ? (
           <StateBadge state={current.state} />
         ) : (
-          <Badge variant="outline" size="sm" className="font-mono">
-            {task.pipeline}
+          <Badge variant="secondary" size="sm">
+            Not started
           </Badge>
         )}
         {(task.repo_ids?.length ?? 0) > 1 ? (
           <span
             title={`Spans ${task.repo_ids!.length} repositories on one branch`}
-            className="inline-flex shrink-0 items-center gap-0.5 font-mono text-[10px] text-muted-foreground"
+            className="inline-flex shrink-0 items-center gap-0.5 text-[11px] text-muted-foreground"
           >
             <LayersIcon aria-hidden className="size-3" />
             {task.repo_ids!.length}
           </span>
         ) : null}
+        <span className="ml-auto shrink-0 text-[11px] text-muted-foreground/80 tabular-nums">
+          {ago(current?.queued_at ?? task.created_at, now)}
+        </span>
         {assignee ? (
           <span
             title={assignee.name}
-            className="ml-auto grid size-4 shrink-0 place-items-center rounded-full bg-secondary text-[9px] font-medium text-secondary-foreground"
+            className="grid size-5 shrink-0 place-items-center rounded-full border border-border/70 bg-secondary text-[9px] font-medium text-secondary-foreground"
           >
             {initials(assignee.name)}
           </span>
-        ) : (
-          <span className="ml-auto text-[10px] text-muted-foreground/70">
-            {ago(task.created_at, now)}
-          </span>
-        )}
+        ) : null}
       </div>
     </button>
   );

@@ -54,6 +54,7 @@ import { GithubIdentity } from "~/components/pipeline/GithubIdentity";
 import { PreviewPanelShell } from "~/components/preview/PreviewPanelShell";
 import { ServerMonitor } from "~/components/pipeline/ServerMonitor";
 import { TaskDetail } from "~/components/pipeline/TaskDetail";
+import { FOUNDRY_TAB_LABEL, FoundryTabs, type FoundryTab } from "~/components/pipeline/FoundryTabs";
 
 /**
  * Foundry, as a page inside T3.
@@ -63,14 +64,9 @@ import { TaskDetail } from "~/components/pipeline/TaskDetail";
  * waiting on a person. T3 owns the agent sessions; Foundry (proxied same-origin
  * under /foundry-api) owns tasks, runs, artifacts, questions and gates.
  */
-type Tab = "board" | "stages" | "docs" | "monitor";
-
-const TAB_LABEL: Record<Tab, string> = {
-  board: "Board",
-  stages: "Stages",
-  docs: "How it works",
-  monitor: "Server monitor",
-};
+/** Team usage is its own route; every other Foundry tab lives on this page. */
+type Tab = Exclude<FoundryTab, "usage">;
+const TABS: readonly Tab[] = ["board", "stages", "docs", "monitor"];
 
 function SignIn({ onDone }: { onDone: () => void }) {
   const [email, setEmail] = useState("");
@@ -212,7 +208,8 @@ function AccountMenu({ me, onSignedOut }: { me: User; onSignedOut: () => void })
 function PipelinePage() {
   const [needsAuth, setNeedsAuth] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [tab, setTab] = useState<Tab>("board");
+  const { task: taskFromUrl, tab: tabFromUrl } = Route.useSearch();
+  const [tab, setTab] = useState<Tab>(tabFromUrl ?? "board");
   const [me, setMe] = useState<User | null>(null);
   const [catalogue, setCatalogue] = useState<Catalogue>({
     stages: [],
@@ -229,7 +226,6 @@ function PipelinePage() {
   const [users, setUsers] = useState<User[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [details, setDetails] = useState<Record<string, Detail>>({});
-  const { task: taskFromUrl } = Route.useSearch();
   const [selected, setSelected] = useState<string | null>(taskFromUrl ?? null);
   const [maximized, setMaximized] = useState(false);
   const [composing, setComposing] = useState(false);
@@ -426,13 +422,11 @@ function PipelinePage() {
   const shownCollection = catalogue.collections.some((c) => c.name === collection)
     ? collection
     : (catalogue.collections[0]?.name ?? null);
-  const stageNames = useMemo(
-    () =>
-      shownCollection
-        ? collectionStages(catalogue, shownCollection).map((s) => s.name)
-        : catalogue.stages.map((s) => s.name), // an older backend, with no collections
+  const stageDefs = useMemo(
+    () => (shownCollection ? collectionStages(catalogue, shownCollection) : catalogue.stages), // an older backend, with no collections
     [catalogue, shownCollection],
   );
+  const stageNames = useMemo(() => stageDefs.map((s) => s.name), [stageDefs]);
   const inCollection = useMemo(
     () => (shownCollection ? tasks.filter((t) => t.pipeline === shownCollection) : tasks),
     [tasks, shownCollection],
@@ -473,7 +467,7 @@ function PipelinePage() {
   }
 
   return (
-    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
+    <SidebarInset className="foundry-type h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
       {/* The bar sizes itself by its own width, not the window's: the sidebar
           takes 256px or none, and the breadcrumb used to draw under the waiting
           count on every laptop-sized window. Narrow, it drops what the tab row
@@ -483,7 +477,7 @@ function PipelinePage() {
           <WorkspaceBreadcrumbItem>Foundry</WorkspaceBreadcrumbItem>
           <WorkspaceBreadcrumbSeparator className="hidden @4xl:flex" />
           <WorkspaceBreadcrumbItem className="hidden truncate @4xl:flex">
-            {TAB_LABEL[tab]}
+            {FOUNDRY_TAB_LABEL[tab]}
           </WorkspaceBreadcrumbItem>
         </WorkspaceBreadcrumb>
 
@@ -509,18 +503,13 @@ function PipelinePage() {
               </span>
             </Button>
           ) : null}
-          <div className="flex items-center rounded-lg border border-border/60 p-0.5">
-            {(["board", "stages", "docs", "monitor"] as const).map((t) => (
-              <Button
-                key={t}
-                size="xs"
-                variant={tab === t ? "secondary" : "ghost-muted"}
-                onClick={() => setTab(t)}
-              >
-                {TAB_LABEL[t]}
-              </Button>
-            ))}
-          </div>
+          <FoundryTabs
+            active={tab}
+            onPick={(t) => {
+              if (t === "usage") void navigate({ to: "/team-usage" });
+              else setTab(t);
+            }}
+          />
           {me ? (
             <AccountMenu
               me={me}
@@ -544,7 +533,68 @@ function PipelinePage() {
               maximized && task ? "w-0 flex-none" : "flex-1",
             )}
           >
-            <div className="flex flex-wrap items-center gap-2 px-5 pt-1 pb-3">
+            {catalogue.collections.length > 1 ? (
+              <nav
+                aria-label="Collections"
+                className="flex shrink-0 gap-5 overflow-x-auto border-b border-border/60 px-5 scrollbar-none"
+              >
+                {catalogue.collections.map((c) => {
+                  const on = c.name === shownCollection;
+                  const open = tasks.filter(
+                    (t) => t.state === "open" && t.pipeline === c.name,
+                  ).length;
+                  return (
+                    <button
+                      key={c.name}
+                      type="button"
+                      aria-current={on ? "page" : undefined}
+                      onClick={() => setCollection(c.name)}
+                      className={cn(
+                        "-mb-px flex items-baseline gap-1.5 border-b-2 py-2 text-[13px] capitalize transition-colors",
+                        on
+                          ? "border-foreground font-medium text-foreground"
+                          : "border-transparent text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {c.name}
+                      <span className="text-[11px] text-muted-foreground/70 tabular-nums">
+                        {open || ""}
+                      </span>
+                    </button>
+                  );
+                })}
+              </nav>
+            ) : null}
+            {/* What is waiting on you, from every collection, above whichever one is
+                open: a review in Sales must not hide behind the Engineering tab. */}
+            {mine.length > 0 ? (
+              <div className="mx-5 mt-3 flex shrink-0 items-center gap-2 overflow-x-auto rounded-lg border border-warning/40 bg-warning/8 px-2.5 py-1.5 scrollbar-none">
+                <span className="shrink-0 pr-1 text-[12px] font-medium text-warning-foreground">
+                  Needs you
+                </span>
+                {mine.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => {
+                      if (t.pipeline !== shownCollection) setCollection(t.pipeline);
+                      setSelected(t.id);
+                    }}
+                    className={cn(
+                      "flex max-w-64 shrink-0 items-center gap-1.5 rounded-md border bg-card px-2 py-0.5 text-[12px] text-foreground hover:bg-accent",
+                      selected === t.id ? "border-primary/60" : "border-border/60",
+                    )}
+                  >
+                    <span className="truncate">{t.title}</span>
+                    <span className="shrink-0 text-[11px] text-muted-foreground">
+                      {t.pipeline !== shownCollection ? `${t.pipeline} · ` : ""}
+                      {waitingRun(t.id)?.stage ?? t.stage}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            <div className="flex flex-wrap items-center gap-2 px-5 pt-3 pb-3">
               <Button size="sm" onClick={() => setComposing((v) => !v)}>
                 <PlusIcon /> New task
               </Button>
@@ -599,20 +649,6 @@ function PipelinePage() {
               >
                 Mine
               </Button>
-              {catalogue.collections.length > 1 && shownCollection ? (
-                <Select value={shownCollection} onValueChange={(v) => setCollection(String(v))}>
-                  <SelectTrigger size="sm" aria-label="Collection" className="w-36">
-                    <SelectValue>{shownCollection}</SelectValue>
-                  </SelectTrigger>
-                  <SelectPopup alignItemWithTrigger={false}>
-                    {catalogue.collections.map((c) => (
-                      <SelectItem key={c.name} value={c.name}>
-                        {c.name}
-                      </SelectItem>
-                    ))}
-                  </SelectPopup>
-                </Select>
-              ) : null}
               {repos.length > 1 &&
               catalogue.collections.find((c) => c.name === shownCollection)?.code !== false ? (
                 <Select
@@ -705,11 +741,21 @@ function PipelinePage() {
                       )}
                     >
                       <div className="flex items-baseline gap-1.5 px-0.5">
-                        <span className="text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+                        <span className="text-[11px] font-semibold tracking-[0.06em] text-foreground/80 uppercase">
                           {col.key}
                         </span>
-                        <span className="font-mono text-[10px] text-muted-foreground/60">
+                        <span className="text-[10px] text-muted-foreground/70 tabular-nums">
                           {col.tasks.length || ""}
+                        </span>
+                        {/* What the stage produces, so a column says more than its name. */}
+                        <span className="ml-auto text-[10px] text-muted-foreground/60">
+                          {(() => {
+                            const def = stageDefs.find((d) => d.name === col.key);
+                            if (!def) return "";
+                            return def.output.kind === "pull_request"
+                              ? "PR"
+                              : `.${def.output.file?.split(".").pop() ?? ""}`;
+                          })()}
                         </span>
                       </div>
                       {col.tasks.length === 0 ? (
@@ -880,8 +926,11 @@ export const Route = createFileRoute("/_chat/pipeline")({
   // nothing read the parameter.
   // The key is omitted rather than set to undefined, so every other link to
   // /pipeline stays valid without passing a search object.
-  validateSearch: (raw: Record<string, unknown>): { task?: string } =>
-    typeof raw.task === "string" ? { task: raw.task } : {},
+  // `?tab=stages` opens a tab, which is how Team usage links back into this page.
+  validateSearch: (raw: Record<string, unknown>): { task?: string; tab?: Tab } => ({
+    ...(typeof raw.task === "string" ? { task: raw.task } : {}),
+    ...(TABS.includes(raw.tab as Tab) ? { tab: raw.tab as Tab } : {}),
+  }),
   component: PipelinePage,
 });
 

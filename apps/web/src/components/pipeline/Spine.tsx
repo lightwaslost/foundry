@@ -24,11 +24,14 @@ export function Spine({
   runs,
   taskState,
   className,
+  bars = false,
 }: {
   stages: SnapshotStage[];
   runs: Run[];
   taskState: string;
   className?: string;
+  /** Short, thicker bars of a fixed width — the board card — instead of a hairline filling the row. */
+  bars?: boolean;
 }) {
   // The newest run per stage decides that segment's tone.
   const latest = new Map<string, Run>();
@@ -48,7 +51,8 @@ export function Spine({
               render={
                 <span
                   className={cn(
-                    "h-[3px] flex-1 rounded-full transition-colors",
+                    "rounded-full transition-colors",
+                    bars ? "h-1.5 w-[18px] flex-none" : "h-[3px] flex-1",
                     SEGMENT_TONE[tone],
                     tone === "busy" && "motion-safe:animate-pulse",
                     tone === "idle" && "bg-border/70",

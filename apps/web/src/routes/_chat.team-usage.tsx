@@ -10,6 +10,7 @@ import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "~/components/Works
 import { WorkspacePageContainer } from "~/components/WorkspacePageContainer";
 import { WorkspacePageHeader } from "~/components/WorkspacePageHeader";
 import { call, duration, unauthorized } from "~/components/pipeline/api";
+import { FoundryTabs } from "~/components/pipeline/FoundryTabs";
 import { isElectron } from "~/env";
 
 /**
@@ -94,7 +95,7 @@ function TeamUsagePage() {
 
   const t = report?.totals;
   return (
-    <SidebarInset className="h-dvh min-h-0 overflow-hidden bg-background text-foreground">
+    <SidebarInset className="foundry-type h-dvh min-h-0 overflow-hidden bg-background text-foreground">
       <WorkspacePageHeader electron={isElectron}>
         <WorkspaceBreadcrumb ariaLabel="Team usage">
           <WorkspaceBreadcrumbItem>Team usage</WorkspaceBreadcrumbItem>
@@ -114,6 +115,12 @@ function TeamUsagePage() {
             </Button>
           ))}
         </div>
+        <FoundryTabs
+          active="usage"
+          onPick={(t) => {
+            if (t !== "usage") void navigate({ to: "/pipeline", search: { tab: t } });
+          }}
+        />
       </WorkspacePageHeader>
 
       <div className="min-h-0 flex-1 overflow-auto">
