@@ -84,6 +84,9 @@ jobs:
           ssh $SSHOPTS "$H" bash -s <<'EOF'
           set -e
           D=/opt/t3/current # the standalone t3 (0.0.42+) serves client/ from beside its executable
+          # Until t3.service runs from $D the bundle is only staged there; the live server
+          # reads another folder, so there is nothing to verify and nothing to roll back.
+          systemctl show t3 -p ExecStart | grep -q "$D/" || { echo "staged — t3 is not running from $D yet"; exit 0; }
           ASSET=$(grep -o '/assets/main-[A-Za-z0-9_-]*\.js' "$D/client/index.html" | head -1)
           for i in $(seq 1 20); do
             curl -sf -o /dev/null http://172.17.0.1:4488/ && curl -sf -o /dev/null "http://172.17.0.1:4488$ASSET" && { echo "healthy — serving $ASSET"; exit 0; }
