@@ -2,4 +2,4 @@
 # refuses to ship the bundle until a backend at or past this has been activated
 # (it checks /opt/foundry/releases.log on the host). Bump it when the frontend
 # starts depending on a new route or field.
-75411aaea1e3b1f4499c7400739cfef5096b4673
+ab680baba0a4d01925afecda6573ade6c35f273e

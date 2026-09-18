@@ -5,9 +5,14 @@ import {
   PairingPendingSurface,
   PairingRouteSurface,
 } from "../components/auth/PairingRouteSurface";
+import { safeNextPath } from "../components/pipeline/api";
 
 export const Route = createFileRoute("/pair")({
-  beforeLoad: async ({ context }) => {
+  // Foundry: `?next=/pipeline` is where to land once paired. Optional, so every
+  // other link to /pair stays valid without a search object.
+  validateSearch: (raw: Record<string, unknown>): { next?: string } =>
+    typeof raw.next === "string" ? { next: raw.next } : {},
+  beforeLoad: async ({ context, search }) => {
     const { authGateState } = context;
     if (authGateState.status === "hosted-pairing") {
       return {
@@ -16,7 +21,7 @@ export const Route = createFileRoute("/pair")({
     }
 
     if (authGateState.status === "authenticated" || authGateState.status === "hosted-static") {
-      throw redirect({ to: "/", replace: true });
+      throw redirect({ to: safeNextPath(search.next) as "/", replace: true });
     }
     return {
       authGateState,
@@ -28,6 +33,7 @@ export const Route = createFileRoute("/pair")({
 
 function PairRouteView() {
   const { authGateState } = Route.useRouteContext();
+  const { next } = Route.useSearch();
   const navigate = useNavigate();
 
   if (!authGateState) {
@@ -42,7 +48,7 @@ function PairRouteView() {
     <PairingRouteSurface
       auth={authGateState.auth}
       onAuthenticated={() => {
-        void navigate({ to: "/", replace: true });
+        void navigate({ to: safeNextPath(next) as "/", replace: true });
       }}
       {...(authGateState.errorMessage ? { initialErrorMessage: authGateState.errorMessage } : {})}
     />

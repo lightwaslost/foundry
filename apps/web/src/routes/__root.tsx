@@ -152,7 +152,8 @@ function RootRouteView() {
     };
   }, [pathname]);
 
-  if (pathname === "/pair" || pathname === "/connect") {
+  // Foundry: /artifact/<id> is a document with the whole window, so no sidebar either.
+  if (pathname === "/pair" || pathname === "/connect" || pathname.startsWith("/artifact/")) {
     return (
       <>
         <DocumentTitleSync />

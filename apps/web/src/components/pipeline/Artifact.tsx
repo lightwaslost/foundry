@@ -1,6 +1,7 @@
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { ExternalLinkIcon } from "lucide-react";
 import { AiraaLoader } from "./AiraaLoader";
 import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "~/components/ui/button";
@@ -11,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "~/components/ui/select";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
 import { API, call, unauthorized, type ArtifactMeta } from "./api";
 
@@ -122,12 +124,16 @@ export function ArtifactViewer({
   onPickVersion,
   onClose,
   onDiff,
+  fullWindow = false,
 }: {
   meta: ArtifactMeta;
   versions: ArtifactMeta[];
   onPickVersion: (a: ArtifactMeta) => void;
-  onClose: () => void;
+  /** Not needed in a full window, which has no Back. */
+  onClose?: () => void;
   onDiff: (fromId: string, toId: string) => void;
+  /** The document has the whole window: a wider column, and nothing to go back or out to. */
+  fullWindow?: boolean;
 }) {
   const [content, setContent] = useState<string | null>(null);
   useEffect(() => {
@@ -181,9 +187,30 @@ export function ArtifactViewer({
               Compare with v{prev.version}
             </Button>
           ) : null}
-          <Button size="xs" variant="ghost-muted" onClick={onClose}>
-            Back
-          </Button>
+          {fullWindow ? null : (
+            <>
+              {/* The page, never the raw file: an agent's HTML opened directly would
+                  run as the signed-in person. The page keeps it in the sandbox. */}
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      size="xs"
+                      variant="ghost-muted"
+                      aria-label="Open in a new tab"
+                      render={<a href={`/artifact/${meta.id}`} target="_blank" rel="noopener" />}
+                    />
+                  }
+                >
+                  <ExternalLinkIcon />
+                </TooltipTrigger>
+                <TooltipPopup side="bottom">Open in a new tab</TooltipPopup>
+              </Tooltip>
+              <Button size="xs" variant="ghost-muted" onClick={onClose}>
+                Back
+              </Button>
+            </>
+          )}
         </div>
       </header>
       {content === null ? (
@@ -199,7 +226,7 @@ export function ArtifactViewer({
         // Documents are read, not skimmed: a measure cap keeps the lines legible
         // however wide the reader has dragged the panel.
         <div className="min-h-0 flex-1 overflow-auto px-5 py-4 scrollbar-none">
-          <div className="mx-auto max-w-[68ch]">
+          <div className={cn("mx-auto", fullWindow ? "max-w-[96ch]" : "max-w-[68ch]")}>
             <Markdown src={content} />
           </div>
         </div>

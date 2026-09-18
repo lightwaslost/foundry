@@ -4,7 +4,7 @@ import { Button } from "~/components/ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { cn } from "~/lib/utils";
 
-export type FoundryTab = "board" | "stages" | "usage" | "docs" | "monitor";
+export type FoundryTab = "board" | "stages" | "usage" | "team" | "docs" | "monitor";
 
 /**
  * While a Foundry page is mounted, its popups — which render into <body>, outside
@@ -21,6 +21,7 @@ const PRIMARY: Array<[FoundryTab, string]> = [
   ["board", "Pipeline"],
   ["stages", "Stages"],
   ["usage", "Team usage"],
+  ["team", "Team"],
 ];
 /** Opened rarely, so they share one menu instead of a tab each. */
 const MORE: Array<[FoundryTab, string]> = [

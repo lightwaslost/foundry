@@ -119,7 +119,8 @@ function TeamUsagePage() {
         <FoundryTabs
           active="usage"
           onPick={(t) => {
-            if (t !== "usage") void navigate({ to: "/pipeline", search: { tab: t } });
+            if (t === "team") void navigate({ to: "/team" });
+            else if (t !== "usage") void navigate({ to: "/pipeline", search: { tab: t } });
           }}
         />
       </WorkspacePageHeader>

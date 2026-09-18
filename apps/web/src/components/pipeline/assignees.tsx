@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { API } from "./api";
+import { API, visibleTasks } from "./api";
 
 /**
  * Who is working on what, for surfaces outside the Pipeline page.
@@ -38,14 +38,15 @@ async function load(): Promise<void> {
     ]);
     if (!tasksRes.ok || !usersRes.ok) return; // signed out, or Foundry is down
     const { tasks } = (await tasksRes.json()) as {
-      tasks: Array<{ ticket: string; assignee_id: string | null }>;
+      tasks: Array<{ ticket: string; assignee_id: string | null; state: string }>;
     };
     const { users } = (await usersRes.json()) as {
       users: Array<{ id: string; name: string; github_login: string | null }>;
     };
     const byId = new Map(users.map((u) => [u.id, u]));
     const byTicket = new Map<string, Assignee>();
-    for (const t of tasks) {
+    // A deleted ticket's thread keeps no face: nobody is working on it.
+    for (const t of visibleTasks(tasks)) {
       const u = t.assignee_id ? byId.get(t.assignee_id) : undefined;
       if (u)
         byTicket.set(t.ticket.toUpperCase(), { id: u.id, name: u.name, login: u.github_login });

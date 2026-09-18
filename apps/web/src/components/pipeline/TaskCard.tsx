@@ -54,7 +54,13 @@ export function TaskCard({
         onDragStart();
       }}
       onDragEnd={onDragEnd}
-      title={movable ? "Drag to another stage" : "Running — stop it before moving it"}
+      title={
+        movable
+          ? "Drag to another stage"
+          : task.state === "cancelled"
+            ? "Deleted — restore it to move it"
+            : "Running — stop it before moving it"
+      }
       className={cn(
         "group flex w-full flex-col gap-2 rounded-xl border bg-card px-2.5 py-2.5 text-left transition-colors",
         selected
@@ -83,7 +89,7 @@ export function TaskCard({
           </Badge>
         ) : task.state !== "open" ? (
           <Badge variant="secondary" size="sm" className="capitalize">
-            {task.state}
+            {task.state === "cancelled" ? "deleted" : task.state}
           </Badge>
         ) : current ? (
           <StateBadge state={current.state} />

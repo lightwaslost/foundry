@@ -100,6 +100,20 @@ export interface User {
   name: string;
   email: string;
   role: "admin" | "member";
+  github_login?: string | null;
+  /** Set on a removed member. Only the admin list sends it; everyone else sees active members only. */
+  disabled_at?: string | null;
+}
+/** A link that lets one new person set their own password. Single use, seven days. */
+export interface Invite {
+  id: string;
+  email: string;
+  name: string;
+  role: User["role"];
+  created_at: string;
+  expires_at: string;
+  accepted_at: string | null;
+  revoked_at: string | null;
 }
 /** The stage list frozen into a task at creation. */
 export type SnapshotStage = Pick<
@@ -510,6 +524,42 @@ export function stageColumns<T extends { stage: string | null }>(
   const elsewhere = open.filter((t) => !t.stage || !stageNames.includes(t.stage));
   return elsewhere.length ? [...cols, { key: "removed", tasks: elsewhere }] : cols;
 }
+
+// ── team and tickets ──────────────────────────────────────────────────────────
+/**
+ * A deleted ticket is one whose state is `cancelled` — nothing else writes that
+ * state. The board, the sidebar faces and "Mine" show everything but those; the
+ * Deleted view shows only those.
+ */
+export const visibleTasks = <T extends { state: string }>(tasks: T[], deleted = false): T[] =>
+  tasks.filter((t) => (t.state === "cancelled") === deleted);
+
+/** The tickets a person still has to finish — what has to go to someone else when they leave. */
+export const openTicketsOf = <T extends { state: string; assignee_id: string | null }>(
+  tasks: T[],
+  userId: string,
+): T[] => tasks.filter((t) => t.state === "open" && t.assignee_id === userId);
+
+/** Invites still waiting to be used. An expired one stays listed until it is revoked. */
+export const pendingInvites = (invites: Invite[]): Invite[] =>
+  invites.filter((i) => !i.accepted_at && !i.revoked_at);
+
+export function inviteStatus(invite: Pick<Invite, "expires_at">, now: number): string {
+  const left = new Date(invite.expires_at).getTime() - now;
+  if (left <= 0) return "Invite expired";
+  const days = Math.floor(left / 86_400_000);
+  return days === 0 ? "Invited, expires today" : `Invited, expires in ${plural(days, "day")}`;
+}
+
+export const memberStatus = (user: Pick<User, "disabled_at">): string =>
+  user.disabled_at ? "Removed" : "Active";
+
+/**
+ * Where to land after pairing. Only a path on this site: one leading slash, so
+ * `//host`, `/\host` and anything with a scheme all fall back to the home page.
+ */
+export const safeNextPath = (next: unknown): string =>
+  typeof next === "string" && /^\/(?![/\\])/.test(next) ? next : "/";
 
 // ── presentation helpers ──────────────────────────────────────────────────────
 export const BUSY: ReadonlySet<RunState> = new Set([

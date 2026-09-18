@@ -29,7 +29,9 @@ import { Route as SettingsConnectionsRouteImport } from './routes/settings.conne
 import { Route as SettingsArchivedRouteImport } from './routes/settings.archived'
 import { Route as SettingsAppearanceRouteImport } from './routes/settings.appearance'
 import { Route as ProjectsProjectKeyRouteImport } from './routes/projects.$projectKey'
+import { Route as ArtifactArtifactIdRouteImport } from './routes/artifact.$artifactId'
 import { Route as ChatTeamUsageRouteImport } from './routes/_chat.team-usage'
+import { Route as ChatTeamRouteImport } from './routes/_chat.team'
 import { Route as ChatPullRequestsRouteImport } from './routes/_chat.pull-requests'
 import { Route as ChatPipelineRouteImport } from './routes/_chat.pipeline'
 import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draftId'
@@ -135,9 +137,19 @@ const ProjectsProjectKeyRoute = ProjectsProjectKeyRouteImport.update({
   path: '/projects/$projectKey',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ArtifactArtifactIdRoute = ArtifactArtifactIdRouteImport.update({
+  id: '/artifact/$artifactId',
+  path: '/artifact/$artifactId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ChatTeamUsageRoute = ChatTeamUsageRouteImport.update({
   id: '/team-usage',
   path: '/team-usage',
+  getParentRoute: () => ChatRoute,
+} as any)
+const ChatTeamRoute = ChatTeamRouteImport.update({
+  id: '/team',
+  path: '/team',
   getParentRoute: () => ChatRoute,
 } as any)
 const ChatPullRequestsRoute = ChatPullRequestsRouteImport.update({
@@ -171,7 +183,9 @@ export interface FileRoutesByFullPath {
   '/welcome': typeof WelcomeRoute
   '/pipeline': typeof ChatPipelineRoute
   '/pull-requests': typeof ChatPullRequestsRoute
+  '/team': typeof ChatTeamRoute
   '/team-usage': typeof ChatTeamUsageRoute
+  '/artifact/$artifactId': typeof ArtifactArtifactIdRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archived': typeof SettingsArchivedRoute
@@ -196,7 +210,9 @@ export interface FileRoutesByTo {
   '/welcome': typeof WelcomeRoute
   '/pipeline': typeof ChatPipelineRoute
   '/pull-requests': typeof ChatPullRequestsRoute
+  '/team': typeof ChatTeamRoute
   '/team-usage': typeof ChatTeamUsageRoute
+  '/artifact/$artifactId': typeof ArtifactArtifactIdRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archived': typeof SettingsArchivedRoute
@@ -224,7 +240,9 @@ export interface FileRoutesById {
   '/welcome': typeof WelcomeRoute
   '/_chat/pipeline': typeof ChatPipelineRoute
   '/_chat/pull-requests': typeof ChatPullRequestsRoute
+  '/_chat/team': typeof ChatTeamRoute
   '/_chat/team-usage': typeof ChatTeamUsageRoute
+  '/artifact/$artifactId': typeof ArtifactArtifactIdRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archived': typeof SettingsArchivedRoute
@@ -253,7 +271,9 @@ export interface FileRouteTypes {
     | '/welcome'
     | '/pipeline'
     | '/pull-requests'
+    | '/team'
     | '/team-usage'
+    | '/artifact/$artifactId'
     | '/projects/$projectKey'
     | '/settings/appearance'
     | '/settings/archived'
@@ -278,7 +298,9 @@ export interface FileRouteTypes {
     | '/welcome'
     | '/pipeline'
     | '/pull-requests'
+    | '/team'
     | '/team-usage'
+    | '/artifact/$artifactId'
     | '/projects/$projectKey'
     | '/settings/appearance'
     | '/settings/archived'
@@ -305,7 +327,9 @@ export interface FileRouteTypes {
     | '/welcome'
     | '/_chat/pipeline'
     | '/_chat/pull-requests'
+    | '/_chat/team'
     | '/_chat/team-usage'
+    | '/artifact/$artifactId'
     | '/projects/$projectKey'
     | '/settings/appearance'
     | '/settings/archived'
@@ -331,6 +355,7 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRouteWithChildren
   UsageRoute: typeof UsageRoute
   WelcomeRoute: typeof WelcomeRoute
+  ArtifactArtifactIdRoute: typeof ArtifactArtifactIdRoute
   ProjectsProjectKeyRoute: typeof ProjectsProjectKeyRoute
 }
 
@@ -476,11 +501,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsProjectKeyRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/artifact/$artifactId': {
+      id: '/artifact/$artifactId'
+      path: '/artifact/$artifactId'
+      fullPath: '/artifact/$artifactId'
+      preLoaderRoute: typeof ArtifactArtifactIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_chat/team-usage': {
       id: '/_chat/team-usage'
       path: '/team-usage'
       fullPath: '/team-usage'
       preLoaderRoute: typeof ChatTeamUsageRouteImport
+      parentRoute: typeof ChatRoute
+    }
+    '/_chat/team': {
+      id: '/_chat/team'
+      path: '/team'
+      fullPath: '/team'
+      preLoaderRoute: typeof ChatTeamRouteImport
       parentRoute: typeof ChatRoute
     }
     '/_chat/pull-requests': {
@@ -517,6 +556,7 @@ declare module '@tanstack/react-router' {
 interface ChatRouteChildren {
   ChatPipelineRoute: typeof ChatPipelineRoute
   ChatPullRequestsRoute: typeof ChatPullRequestsRoute
+  ChatTeamRoute: typeof ChatTeamRoute
   ChatTeamUsageRoute: typeof ChatTeamUsageRoute
   ChatIndexRoute: typeof ChatIndexRoute
   ChatEnvironmentIdThreadIdRoute: typeof ChatEnvironmentIdThreadIdRoute
@@ -526,6 +566,7 @@ interface ChatRouteChildren {
 const ChatRouteChildren: ChatRouteChildren = {
   ChatPipelineRoute: ChatPipelineRoute,
   ChatPullRequestsRoute: ChatPullRequestsRoute,
+  ChatTeamRoute: ChatTeamRoute,
   ChatTeamUsageRoute: ChatTeamUsageRoute,
   ChatIndexRoute: ChatIndexRoute,
   ChatEnvironmentIdThreadIdRoute: ChatEnvironmentIdThreadIdRoute,
@@ -575,6 +616,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRouteWithChildren,
   UsageRoute: UsageRoute,
   WelcomeRoute: WelcomeRoute,
+  ArtifactArtifactIdRoute: ArtifactArtifactIdRoute,
   ProjectsProjectKeyRoute: ProjectsProjectKeyRoute,
 }
 export const routeTree = rootRouteImport

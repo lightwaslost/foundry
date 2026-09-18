@@ -17,8 +17,10 @@ import {
   GitPullRequestIcon,
   PlayIcon,
   RotateCwIcon,
+  Trash2Icon,
   XIcon,
 } from "lucide-react";
+import { requestConfirmDialog } from "~/confirmDialog";
 import { useResizableWidth } from "~/hooks/useResizableWidth";
 import { RightPanelResizeHandle } from "~/components/preview/RightPanelResizeHandle";
 import { cn } from "~/lib/utils";
@@ -32,6 +34,7 @@ import {
   bannerFor,
   duration,
   initials,
+  patch,
   post,
   taskPrs,
   toneOf,
@@ -49,6 +52,7 @@ import {
   describeCodeEvent,
 } from "./api";
 import { ArtifactViewer, DiffView } from "./Artifact";
+import { AssigneePicker } from "./AssigneePicker";
 import { ConversationPanel } from "./Conversation";
 import { GatePanel, QuestionsPanel } from "./HumanPanels";
 import { ActiveTime, SEGMENT_TONE, Spine } from "./Spine";
@@ -160,6 +164,37 @@ export function TaskDetail({
     setBusy(false);
     if (!unauthorized(r) && r.error) setError(r.error);
     onChanged();
+  };
+
+  /** Anyone may hand a ticket over, at any time; a refusal is shown as the server worded it. */
+  const reassign = async (assigneeId: string | null) => {
+    setError(null);
+    const r = await patch<{ error?: string }>(`/api/tasks/${task.id}`, {
+      assignee_id: assigneeId,
+    });
+    if (!unauthorized(r) && r.error) setError(r.error);
+    onChanged();
+  };
+
+  /** Delete hides the ticket and can be undone, so the confirm says exactly what is lost and what is not. */
+  const remove = async () => {
+    const message = [
+      `Delete ${task.ticket}?`,
+      "A stage that is running is stopped.",
+      "Open pull requests are closed.",
+      "The working folder is removed.",
+      "Documents and history are kept. You can restore the ticket from Deleted on the board.",
+    ].join("\n");
+    const sure = await (requestConfirmDialog(message, { variant: "destructive" }) ??
+      window.confirm(message));
+    if (!sure) return;
+    setBusy(true);
+    setError(null);
+    const r = await post<{ error?: string }>(`/api/tasks/${task.id}/delete`);
+    setBusy(false);
+    if (!unauthorized(r) && r.error) return setError(r.error);
+    onChanged();
+    onClose();
   };
 
   const runs = detail?.runs ?? [];
@@ -313,7 +348,11 @@ export function TaskDetail({
         repos={repos}
         users={users}
         now={now}
+        busy={busy}
         onChanged={onChanged}
+        onReassign={(id) => void reassign(id)}
+        onDelete={() => void remove()}
+        onRestore={() => void act(`/api/tasks/${task.id}/restore`)}
         maximized={maximized}
         onToggleMaximized={onToggleMaximized}
         onClose={onClose}
@@ -375,11 +414,15 @@ function Header({
   repos,
   users,
   now,
+  busy,
   maximized,
   onToggleMaximized,
   onClose,
   onMove,
   onChanged,
+  onReassign,
+  onDelete,
+  onRestore,
 }: {
   task: Task;
   runs: Run[];
@@ -387,6 +430,10 @@ function Header({
   repos: Repo[];
   users: User[];
   now: number;
+  busy: boolean;
+  onReassign: (assigneeId: string | null) => void;
+  onDelete: () => void;
+  onRestore: () => void;
   maximized: boolean;
   onToggleMaximized: () => void;
   onClose: () => void;
@@ -410,6 +457,7 @@ function Header({
   const assignee = users.find((u) => u.id === task.assignee_id);
   // On the task itself, so they are there at every stage after the build opens them.
   const prs = taskPrs(runs);
+  const deleted = task.state === "cancelled";
 
   return (
     <header className="shrink-0 border-b border-border/50 py-3 pr-2 pl-4">
@@ -420,6 +468,28 @@ function Header({
         <span className="shrink-0 pt-0.5 font-mono text-[11px] text-muted-foreground">
           {task.ticket}
         </span>
+        {deleted ? (
+          <Button size="xs" variant="outline" disabled={busy} onClick={onRestore}>
+            Restore
+          </Button>
+        ) : (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="xs"
+                  variant="ghost-muted"
+                  aria-label="Delete this ticket"
+                  disabled={busy}
+                  onClick={onDelete}
+                />
+              }
+            >
+              <Trash2Icon />
+            </TooltipTrigger>
+            <TooltipPopup side="bottom">Delete this ticket</TooltipPopup>
+          </Tooltip>
+        )}
         <Button
           size="xs"
           variant="ghost-muted"
@@ -440,23 +510,27 @@ function Header({
           runs={runs}
           taskState={task.state}
         />
-        <Menu>
-          <MenuTrigger
-            aria-label="Move this task to another stage"
-            className="inline-flex h-5 items-center gap-1 rounded-md px-1.5 font-mono text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            {task.state === "done" ? "shipped" : (task.stage ?? "—")}
-            <ChevronDownIcon aria-hidden className="size-3 shrink-0 opacity-70" />
-          </MenuTrigger>
-          <MenuPopup align="start" side="bottom" className="min-w-44">
-            {task.pipeline_snapshot.map((st) => (
-              <MenuItem key={st.name} onClick={() => onMove(st.name)}>
-                {st.name}
-              </MenuItem>
-            ))}
-            <MenuItem onClick={() => onMove("shipped")}>shipped — close this task</MenuItem>
-          </MenuPopup>
-        </Menu>
+        {deleted ? (
+          <span className="px-1.5 font-mono text-[11px] text-muted-foreground">deleted</span>
+        ) : (
+          <Menu>
+            <MenuTrigger
+              aria-label="Move this task to another stage"
+              className="inline-flex h-5 items-center gap-1 rounded-md px-1.5 font-mono text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              {task.state === "done" ? "shipped" : (task.stage ?? "—")}
+              <ChevronDownIcon aria-hidden className="size-3 shrink-0 opacity-70" />
+            </MenuTrigger>
+            <MenuPopup align="start" side="bottom" className="min-w-44">
+              {task.pipeline_snapshot.map((st) => (
+                <MenuItem key={st.name} onClick={() => onMove(st.name)}>
+                  {st.name}
+                </MenuItem>
+              ))}
+              <MenuItem onClick={() => onMove("shipped")}>shipped — close this task</MenuItem>
+            </MenuPopup>
+          </Menu>
+        )}
         {focus ? <StateBadge state={focus.state} /> : null}
       </div>
 
@@ -491,22 +565,26 @@ function Header({
             </>
           ) : null}
           <span aria-hidden>·</span>
-          {assignee ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <span className="grid size-4 shrink-0 place-items-center rounded-full bg-secondary text-[9px] font-medium text-secondary-foreground" />
-                }
-              >
+          {/* The face is the picker: whose ticket this is, and how you change it. */}
+          <AssigneePicker
+            users={users}
+            value={task.assignee_id}
+            onChange={onReassign}
+            disabled={deleted}
+            note={
+              runs.some((r) => BUSY.has(r.state))
+                ? "A stage is running. Commits and review requests switch to the new person from the next commit."
+                : null
+            }
+          >
+            {assignee ? (
+              <span className="grid size-4 shrink-0 place-items-center rounded-full bg-secondary text-[9px] font-medium text-secondary-foreground">
                 {initials(assignee.name)}
-              </TooltipTrigger>
-              <TooltipPopup side="bottom">
-                {assignee.name} · {assignee.email}
-              </TooltipPopup>
-            </Tooltip>
-          ) : (
-            <span className="shrink-0 text-muted-foreground/70">unassigned</span>
-          )}
+              </span>
+            ) : (
+              <span className="font-mono text-[11px] text-muted-foreground/70">unassigned</span>
+            )}
+          </AssigneePicker>
           <span className="shrink-0 text-muted-foreground/70">{ago(task.created_at, now)}</span>
         </span>
         <Button

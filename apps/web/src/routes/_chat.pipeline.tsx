@@ -37,6 +37,7 @@ import {
   unauthorized,
   collectionStages,
   stageColumns,
+  visibleTasks,
   type Detail,
   type Draft,
   type DraftView,
@@ -69,8 +70,8 @@ import {
  * waiting on a person. T3 owns the agent sessions; Foundry (proxied same-origin
  * under /foundry-api) owns tasks, runs, artifacts, questions and gates.
  */
-/** Team usage is its own route; every other Foundry tab lives on this page. */
-type Tab = Exclude<FoundryTab, "usage">;
+/** Team usage and Team are their own routes; every other Foundry tab lives on this page. */
+type Tab = Exclude<FoundryTab, "usage" | "team">;
 const TABS: readonly Tab[] = ["board", "stages", "docs", "monitor"];
 
 function SignIn({ onDone }: { onDone: () => void }) {
@@ -260,6 +261,8 @@ function PipelinePage() {
   const [query, setQuery] = useState("");
   const [filterAssignee, setFilterAssignee] = useState<string | null>(null);
   const [filterRepo, setFilterRepo] = useState<string | null>(null);
+  // Deleted tickets are off the board; this shows only them, to look one up or restore it.
+  const [showDeleted, setShowDeleted] = useState(false);
   // Which kind of work the board shows. Remembered per browser; storage can be
   // unavailable, and the board works the same without it.
   const [collection, setCollectionState] = useState<string>(() => {
@@ -432,6 +435,15 @@ function PipelinePage() {
     [tasks, refresh],
   );
 
+  /** Back onto the board where it was. A refusal — its Linear issue was taken meanwhile — is shown as sent. */
+  const restore = async (taskId: string) => {
+    setMoveError(null);
+    const r = await post<{ error?: string }>(`/api/tasks/${taskId}/restore`);
+    if (unauthorized(r)) return;
+    if (r.error) return setMoveError(r.error);
+    void refresh();
+  };
+
   // A collection that no longer exists (renamed, reverted) falls back to the first.
   const shownCollection = catalogue.collections.some((c) => c.name === collection)
     ? collection
@@ -441,9 +453,10 @@ function PipelinePage() {
     [catalogue, shownCollection],
   );
   const stageNames = useMemo(() => stageDefs.map((s) => s.name), [stageDefs]);
+  const shown = useMemo(() => visibleTasks(tasks, showDeleted), [tasks, showDeleted]);
   const inCollection = useMemo(
-    () => (shownCollection ? tasks.filter((t) => t.pipeline === shownCollection) : tasks),
-    [tasks, shownCollection],
+    () => (shownCollection ? shown.filter((t) => t.pipeline === shownCollection) : shown),
+    [shown, shownCollection],
   );
 
   const visible = useMemo(() => {
@@ -457,17 +470,18 @@ function PipelinePage() {
   }, [inCollection, query, filterAssignee, filterRepo]);
 
   const columns = useMemo(() => {
+    if (showDeleted) return [{ key: "deleted", tasks: visible }];
     const open = visible.filter((t) => t.state === "open");
-    // Rejected and cancelled tasks had no column, so they vanished from the board.
+    // Rejected tasks had no column, so they vanished from the board.
     // Shown only when there are some; nothing can be dropped here (it is not a stage),
     // but a card can be dragged back out, which reopens it like a shipped one.
-    const closed = visible.filter((t) => t.state === "rejected" || t.state === "cancelled");
+    const closed = visible.filter((t) => t.state === "rejected");
     return [
       ...stageColumns(stageNames, open),
       { key: "shipped", tasks: visible.filter((t) => t.state === "done") },
       ...(closed.length ? [{ key: "rejected", tasks: closed }] : []),
     ];
-  }, [visible, stageNames]);
+  }, [visible, stageNames, showDeleted]);
   const filtered = visible.length !== inCollection.length;
 
   const task = tasks.find((t) => t.id === selected) ?? null;
@@ -524,6 +538,7 @@ function PipelinePage() {
             active={tab}
             onPick={(t) => {
               if (t === "usage") void navigate({ to: "/team-usage" });
+              else if (t === "team") void navigate({ to: "/team" });
               else setTab(t);
             }}
           />
@@ -666,6 +681,13 @@ function PipelinePage() {
               >
                 Mine
               </Button>
+              <Button
+                size="xs"
+                variant={showDeleted ? "secondary" : "ghost-muted"}
+                onClick={() => setShowDeleted((v) => !v)}
+              >
+                Deleted
+              </Button>
               {repos.length > 1 &&
               catalogue.collections.find((c) => c.name === shownCollection)?.code !== false ? (
                 <Select
@@ -701,15 +723,19 @@ function PipelinePage() {
                 </Button>
               ) : null}
               <span className="text-[11px] text-muted-foreground">
-                {visible.filter((t) => t.state === "open").length} open ·{" "}
-                {visible.filter((t) => t.state === "done").length} shipped
-                {(() => {
-                  const n = visible.filter(
-                    (t) => t.state === "rejected" || t.state === "cancelled",
-                  ).length;
-                  return n ? ` · ${n} rejected` : "";
-                })()}
-                {filtered ? ` · ${tasks.length - visible.length} hidden` : ""}
+                {showDeleted ? (
+                  `${visible.length} deleted`
+                ) : (
+                  <>
+                    {visible.filter((t) => t.state === "open").length} open ·{" "}
+                    {visible.filter((t) => t.state === "done").length} shipped
+                    {(() => {
+                      const n = visible.filter((t) => t.state === "rejected").length;
+                      return n ? ` · ${n} rejected` : "";
+                    })()}
+                  </>
+                )}
+                {filtered ? ` · ${shown.length - visible.length} hidden` : ""}
               </span>
               {moveError ? (
                 <span className="text-[11px] text-destructive-foreground">{moveError}</span>
@@ -735,7 +761,7 @@ function PipelinePage() {
                     <div
                       key={col.key}
                       onDragOver={(e) => {
-                        if (!dragTask || col.key === "rejected") return;
+                        if (!dragTask || col.key === "rejected" || col.key === "deleted") return;
                         e.preventDefault();
                         e.dataTransfer.dropEffect = "move";
                         setDropTarget(col.key);
@@ -777,27 +803,37 @@ function PipelinePage() {
                       </div>
                       {col.tasks.length === 0 ? (
                         <div className="rounded-xl border border-dashed border-border/50 px-3 py-4 text-center text-[11px] text-muted-foreground/50">
-                          {dragTask ? "drop here" : "nothing here"}
+                          {showDeleted
+                            ? "no deleted tickets"
+                            : dragTask
+                              ? "drop here"
+                              : "nothing here"}
                         </div>
                       ) : null}
                       {col.tasks.map((t) => (
-                        <TaskCard
-                          key={t.id}
-                          task={t}
-                          runs={runsOf(t.id)}
-                          users={users}
-                          selected={selected === t.id}
-                          waiting={waitingRun(t.id)}
-                          onSelect={() => setSelected(t.id)}
-                          now={now}
-                          movable={!runsOf(t.id).some((r) => BUSY.has(r.state))}
-                          dragging={dragTask === t.id}
-                          onDragStart={() => setDragTask(t.id)}
-                          onDragEnd={() => {
-                            setDragTask(null);
-                            setDropTarget(null);
-                          }}
-                        />
+                        <div key={t.id} className="space-y-1">
+                          <TaskCard
+                            task={t}
+                            runs={runsOf(t.id)}
+                            users={users}
+                            selected={selected === t.id}
+                            waiting={waitingRun(t.id)}
+                            onSelect={() => setSelected(t.id)}
+                            now={now}
+                            movable={!showDeleted && !runsOf(t.id).some((r) => BUSY.has(r.state))}
+                            dragging={dragTask === t.id}
+                            onDragStart={() => setDragTask(t.id)}
+                            onDragEnd={() => {
+                              setDragTask(null);
+                              setDropTarget(null);
+                            }}
+                          />
+                          {showDeleted ? (
+                            <Button size="xs" variant="outline" onClick={() => void restore(t.id)}>
+                              Restore
+                            </Button>
+                          ) : null}
+                        </div>
                       ))}
                     </div>
                   ))}

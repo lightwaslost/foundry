@@ -3,13 +3,6 @@ import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
-import {
-  Select,
-  SelectItem,
-  SelectPopup,
-  SelectTrigger,
-  SelectValue,
-} from "~/components/ui/select";
 import { Spinner } from "~/components/ui/spinner";
 import { Textarea } from "~/components/ui/textarea";
 import { CheckIcon, ChevronRightIcon, PaperclipIcon, PlusIcon, XIcon } from "lucide-react";
@@ -29,6 +22,7 @@ import {
   collectionStages,
   templateFill,
 } from "./api";
+import { AssigneePicker } from "./AssigneePicker";
 import { LinearPicker } from "./LinearPicker";
 import { stageSummary } from "./StageFields";
 
@@ -460,24 +454,11 @@ export function NewTask({
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label>Assignee</Label>
-              <Select
-                value={assignee || "__none"}
-                onValueChange={(v) => setAssignee(v === "__none" ? "" : String(v))}
-              >
-                <SelectTrigger size="sm" aria-label="Assignee">
-                  <SelectValue>
-                    {users.find((u) => u.id === assignee)?.name ?? "Unassigned"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectPopup alignItemWithTrigger={false}>
-                  <SelectItem value="__none">Unassigned</SelectItem>
-                  {users.map((u) => (
-                    <SelectItem key={u.id} value={u.id}>
-                      {u.name}
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
+              <AssigneePicker
+                users={users}
+                value={assignee || null}
+                onChange={(id) => setAssignee(id ?? "")}
+              />
             </div>
           </div>
 
