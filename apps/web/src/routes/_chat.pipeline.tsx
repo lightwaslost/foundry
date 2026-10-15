@@ -348,7 +348,11 @@ function PipelinePage() {
       call<{ models: string[] }>("/api/models"),
       call<{ drafts: Draft[] }>("/api/drafts"),
     ]);
-    if (!unauthorized(d)) setDrafts(d.drafts);
+    // A failed call (500, a 502 mid-deploy, a dropped connection) answers with an
+    // error body, not the list. Keep the last good list rather than storing
+    // undefined: every reader maps or filters these, and a bad poll white-screened
+    // the board on `tasks.filter`.
+    if (!unauthorized(d) && Array.isArray(d.drafts)) setDrafts(d.drafts);
     if (!unauthorized(p)) {
       setCatalogue({
         // An older backend answers /api/stages with a 404 body, not a catalogue.
@@ -363,13 +367,13 @@ function PipelinePage() {
       });
       setSkills(p.skills ?? []);
     }
-    if (!unauthorized(r)) {
+    if (!unauthorized(r) && Array.isArray(r.repos)) {
       setRepos(r.repos);
       setDefaultRepos(r.default_repos ?? []);
     }
-    if (!unauthorized(u)) setUsers(u.users);
-    if (!unauthorized(m)) setModels(m.models);
-    if (!unauthorized(t)) {
+    if (!unauthorized(u) && Array.isArray(u.users)) setUsers(u.users);
+    if (!unauthorized(m) && Array.isArray(m.models)) setModels(m.models);
+    if (!unauthorized(t) && Array.isArray(t.tasks)) {
       setTasks(t.tasks);
       // Runs for every open task: the board's state badges and spines come from
       // these, and there are only ever a handful of live tasks.
