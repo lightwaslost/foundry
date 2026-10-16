@@ -1,10 +1,9 @@
+import { Combobox as ComboboxPrimitive } from "@base-ui/react/combobox";
 import { useEffect, useRef, useState } from "react";
 import { LinkIcon, SearchIcon } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import {
   Combobox,
-  ComboboxGroup,
-  ComboboxGroupLabel,
   ComboboxInput,
   ComboboxItem,
   ComboboxList,
@@ -12,7 +11,30 @@ import {
   ComboboxStatus,
   ComboboxTrigger,
 } from "~/components/ui/combobox";
+import { cn } from "~/lib/utils";
 import { API, type LinearIssue, type LinearIssueRow, type User } from "./api";
+
+// T3 Code v0.1.0 dropped its group wrappers from ui/combobox, having no use for
+// them; the picker's labelled issue sections still do, so they live here.
+function ComboboxGroup({ className, ...props }: ComboboxPrimitive.Group.Props) {
+  return (
+    <ComboboxPrimitive.Group
+      className={cn("[[role=group]+&]:mt-1.5", className)}
+      data-slot="combobox-group"
+      {...props}
+    />
+  );
+}
+
+function ComboboxGroupLabel({ className, ...props }: ComboboxPrimitive.GroupLabel.Props) {
+  return (
+    <ComboboxPrimitive.GroupLabel
+      className={cn("px-2 py-1.5 font-medium text-muted-foreground text-xs", className)}
+      data-slot="combobox-group-label"
+      {...props}
+    />
+  );
+}
 
 // Remembered for the page's life: a Foundry without Linear credentials answers 503,
 // and asking again every time the dialog opens would only repeat that.
@@ -114,7 +136,6 @@ export function LinearPicker({
             index={offset + i}
             value={r.identifier}
             className="min-h-0 py-1.5 text-xs sm:min-h-0 sm:text-xs"
-            contentClassName="flex min-w-0 items-center gap-2"
           >
             <span className="shrink-0 font-mono text-muted-foreground">{r.identifier}</span>
             <span className="min-w-0 flex-1 truncate">{r.title}</span>
@@ -155,7 +176,6 @@ export function LinearPicker({
             <ComboboxInput
               aria-label="Search Linear tickets"
               className="[&_input]:h-6.5 [&_input]:ps-5 [&_input]:font-sans [&_input]:leading-6.5"
-              inputClassName="rounded-none bg-transparent text-sm"
               placeholder="RAP-1920 or words from the title"
               showTrigger={false}
               size="sm"

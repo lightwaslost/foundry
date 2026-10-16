@@ -1,4 +1,4 @@
-import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 
 import {
   HostedPairingRouteSurface,
@@ -32,9 +32,9 @@ export const Route = createFileRoute("/pair")({
 });
 
 function PairRouteView() {
+  const router = useRouter();
   const { authGateState } = Route.useRouteContext();
   const { next } = Route.useSearch();
-  const navigate = useNavigate();
 
   if (!authGateState) {
     return null;
@@ -48,7 +48,11 @@ function PairRouteView() {
     <PairingRouteSurface
       auth={authGateState.auth}
       onAuthenticated={() => {
-        void navigate({ to: safeNextPath(next) as "/", replace: true });
+        // Recreate the primary connection so its WebSocket and cached scopes
+        // use the newly issued cookie after re-pairing. Foundry: land on `next`.
+        router.history.replace(safeNextPath(next));
+        router.history.flush();
+        window.location.reload();
       }}
       {...(authGateState.errorMessage ? { initialErrorMessage: authGateState.errorMessage } : {})}
     />
