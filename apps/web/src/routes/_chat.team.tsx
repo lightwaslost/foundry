@@ -44,7 +44,7 @@ import { AssigneePicker } from "~/components/pipeline/AssigneePicker";
 import { FoundryTabs, useFoundryType } from "~/components/pipeline/FoundryTabs";
 import { isElectron } from "~/env";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
-import { setPairingTokenOnUrl } from "~/pairingUrl";
+import { setPairingTokenOnUrl } from "@t3tools/shared/remote";
 
 /**
  * Team: who is in Foundry. Everyone sees the list; an admin also invites, changes

@@ -45,8 +45,11 @@ export function ConversationPanel({
   const [err, setErr] = useState<string | null>(null);
   // Held in a ref so an inline arrow at the call site does not restart the poll
   // interval on every render of the parent.
+  // Synced in an effect, not during render, which React Compiler refuses to optimize.
   const onDraftRef = useRef(onDraft);
-  onDraftRef.current = onDraft;
+  useEffect(() => {
+    onDraftRef.current = onDraft;
+  }, [onDraft]);
 
   const waiting = run.state === "conversing";
 

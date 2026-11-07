@@ -19,6 +19,7 @@ import {
 import { cn } from "~/lib/utils";
 import {
   ago,
+  call,
   collectionStages,
   moveStage,
   newStage,
@@ -671,9 +672,7 @@ function VersionMenu({
   const load = async () => {
     if (versions) return;
     setLoading(true);
-    const r = await (
-      await import("./api")
-    ).call<{ versions: CatalogueVersion[] }>("/api/stages/versions");
+    const r = await call<{ versions: CatalogueVersion[] }>("/api/stages/versions");
     setLoading(false);
     if (!unauthorized(r)) onOpen(r.versions);
   };

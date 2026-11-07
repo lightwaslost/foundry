@@ -24,7 +24,9 @@ describe("applyLinear", () => {
   it("never overwrites what was typed: the title stays, the ticket goes below the context", () => {
     const r = applyLinear({ title: "Fix it", description: "Only on iOS.\n" }, a);
     expect(r.title).toBe("Fix it");
-    expect(r.description).toBe(`Only on iOS.\n\nThe navbar hides page content.\n\nLinear: ${a.url}`);
+    expect(r.description).toBe(
+      `Only on iOS.\n\nThe navbar hides page content.\n\nLinear: ${a.url}`,
+    );
     expect(r.fill.title).toBeNull();
   });
 
@@ -52,7 +54,10 @@ describe("removeLinear", () => {
 
   it("a title or ticket text the person edited is theirs and stays", () => {
     const r = applyLinear(empty, a);
-    const edited = { title: "Navbar on mobile", description: r.description.replace("hides", "covers") };
+    const edited = {
+      title: "Navbar on mobile",
+      description: r.description.replace("hides", "covers"),
+    };
     expect(removeLinear(edited, r.fill)).toEqual(edited);
   });
 

@@ -298,8 +298,12 @@ function PipelinePage() {
     goToThread(r.draft.thread_id);
   };
 
+  // Synced in an effect, not during render: the key handler only reads it later,
+  // and a ref written during render makes React Compiler skip the whole component.
   const selRef = useRef<string | null>(null);
-  selRef.current = selected;
+  useEffect(() => {
+    selRef.current = selected;
+  }, [selected]);
 
   // The sheet used to close itself on Escape; an inline panel has to do it.
   // Ignored while a dialog or menu is open — those close themselves first.

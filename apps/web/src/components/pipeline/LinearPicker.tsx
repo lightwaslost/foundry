@@ -90,7 +90,11 @@ export function LinearPicker({
           setHidden(true);
           return;
         }
-        if (!res.ok) throw new Error(String(res.status));
+        // Not a throw: React Compiler cannot yet compile a throw inside try/catch.
+        if (!res.ok) {
+          if (!ctl.signal.aborted) setStatus("Linear unavailable");
+          return;
+        }
         setRows(await res.json());
         setStatus(null);
       } catch {
@@ -115,7 +119,10 @@ export function LinearPicker({
         credentials: "include",
         signal: ctl.signal,
       });
-      if (!res.ok) throw new Error(String(res.status));
+      if (!res.ok) {
+        if (!ctl.signal.aborted) setStatus(`Could not load ${identifier}`);
+        return;
+      }
       const issue = (await res.json()) as LinearIssue;
       if (ctl.signal.aborted) return;
       onPick(issue);
